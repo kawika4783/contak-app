@@ -25,7 +25,9 @@ npm run build
 
 ## Hostinger Docker deployment
 
-The repository includes a production `Dockerfile`, `nginx.conf`, and `compose.yaml` for Hostinger's managed Traefik Docker Manager. The default router is `contak-app.srv1831469.hstgr.cloud`; change the host rule in `compose.yaml` before deployment if you want a different DNS name.
+The repository includes a production `Dockerfile`, `nginx.conf`, and `compose.yaml` for Hostinger's managed Traefik Docker Manager. The default router is `contak-app.srv1831469.hstgr.cloud`; change the host rule in `compose.yaml` before deployment if you want a different DNS name. Phase 2 adds PostgreSQL, Redis, and the NestJS API behind the same origin.
+
+Before running Compose, create a local `.env` from `.env.example` with unique secrets. Never commit `.env`.
 
 The static frontend is served by Nginx with SPA fallback and `/healthz`. The container does not claim the backend features described below; it is the safe Phase 1 web deployment.
 
