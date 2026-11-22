@@ -23,6 +23,12 @@ Production build:
 npm run build
 ```
 
+## Hostinger Docker deployment
+
+The repository includes a production `Dockerfile`, `nginx.conf`, and `compose.yaml` for Hostinger's managed Traefik Docker Manager. The default router is `contak-app.srv1831469.hstgr.cloud`; change the host rule in `compose.yaml` before deployment if you want a different DNS name.
+
+The static frontend is served by Nginx with SPA fallback and `/healthz`. The container does not claim the backend features described below; it is the safe Phase 1 web deployment.
+
 ## Architecture notes
 
 The supplied master prompt describes a full monorepo with NestJS, PostgreSQL, Redis, Socket.IO, LiveKit, Coturn, WebRTC, Web Push, authentication, media uploads, and administration. This delivery is the frontend foundation and interaction prototype for that architecture. The current local app intentionally does not claim to provide secure multi-user persistence, authenticated APIs, or real media calls yet.

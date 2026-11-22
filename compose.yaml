@@ -1,0 +1,15 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "80"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.contak-app.rule: "Host(`contak-app.srv1831469.hstgr.cloud`)"
+      traefik.http.routers.contak-app.entrypoints: "websecure"
+      traefik.http.routers.contak-app.tls: "true"
+      traefik.http.routers.contak-app.tls.certresolver: "letsencrypt"
+      traefik.http.services.contak-app.loadbalancer.server.port: "80"
