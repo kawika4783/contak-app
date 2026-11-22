@@ -163,7 +163,7 @@ function apiMessageToMessage(message: ApiMessage, currentUserId: string): Messag
 function App() {
   const [session, setSession] = useState<AuthSession | null>(() => { try { return JSON.parse(localStorage.getItem('contak-session') || 'null') } catch { return null } })
   const [activeNav, setActiveNav] = useState('chats'); const [selectedId, setSelectedId] = useState(''); const [contacts, setContacts] = useState<Contact[]>([]); const [searchResults, setSearchResults] = useState<Contact[]>([]); const [messages, setMessages] = useState<Record<string, Message[]>>({}); const [conversationIds, setConversationIds] = useState<Record<string, string>>({}); const [call, setCall] = useState<{ kind: 'audio' | 'video'; state: 'incoming' | 'calling' | 'connected' } | null>(null)
-  const socketRef = useRef<Socket | null>(null)
+  const socketRef = useRef<Socket | null>(null); const conversationIdsRef = useRef<Record<string, string>>({})
   const chatList = useMemo(() => contacts.map(contactToChat), [contacts])
   const selectedChat = useMemo(() => chatList.find(chat => chat.id === selectedId) || chatList[0] || null, [chatList, selectedId])
 
@@ -171,7 +171,7 @@ function App() {
     if (!session) return
     apiRequest<Contact[]>('/contacts', {}, session.token).then(value => { setContacts(value); if (!selectedId && value[0]) setSelectedId(value[0].id) }).catch(() => undefined)
     const socket = io({ auth: { token: session.token } }); socketRef.current = socket
-    socket.on('message:new', (payload: ApiMessage & { conversation_id?: string }) => { const entry = Object.entries(conversationIds).find(([, id]) => id === payload.conversation_id); if (!entry) return; const [chatId] = entry; setMessages(prev => { const next = apiMessageToMessage(payload, session.user.id); return prev[chatId]?.some(message => message.id === next.id) ? prev : { ...prev, [chatId]: [...(prev[chatId] || []), next] } }) })
+    socket.on('message:new', (payload: ApiMessage & { conversation_id?: string }) => { const entry = Object.entries(conversationIdsRef.current).find(([, id]) => id === payload.conversation_id); if (!entry) return; const [chatId] = entry; setMessages(prev => { const next = apiMessageToMessage(payload, session.user.id); return prev[chatId]?.some(message => message.id === next.id) ? prev : { ...prev, [chatId]: [...(prev[chatId] || []), next] } }) })
     const heartbeat = window.setInterval(() => socket.emit('presence:heartbeat'), 30_000)
     return () => { window.clearInterval(heartbeat); socket.disconnect(); socketRef.current = null }
   }, [session])
@@ -179,13 +179,13 @@ function App() {
   useEffect(() => {
     if (!session || !selectedChat?.userId) return
     let cancelled = false
-    const load = async () => { try { const conversation = await apiRequest<{ id: string }>(`/conversations/with/${selectedChat.userId}`, { method: 'POST' }, session.token); if (cancelled) return; setConversationIds(prev => ({ ...prev, [selectedChat.id]: conversation.id })); socketRef.current?.emit('conversation:join', conversation.id); const serverMessages = await apiRequest<ApiMessage[]>(`/conversations/${conversation.id}/messages`, {}, session.token); if (!cancelled) setMessages(prev => ({ ...prev, [selectedChat.id]: serverMessages.map(message => apiMessageToMessage(message, session.user.id)) })) } catch { if (!cancelled) setMessages(prev => ({ ...prev, [selectedChat.id]: prev[selectedChat.id] || [] })) } }
+    const load = async () => { try { const conversation = await apiRequest<{ id: string }>(`/conversations/with/${selectedChat.userId}`, { method: 'POST' }, session.token); if (cancelled) return; conversationIdsRef.current = { ...conversationIdsRef.current, [selectedChat.id]: conversation.id }; setConversationIds(prev => ({ ...prev, [selectedChat.id]: conversation.id })); socketRef.current?.emit('conversation:join', conversation.id); const serverMessages = await apiRequest<ApiMessage[]>(`/conversations/${conversation.id}/messages`, {}, session.token); if (!cancelled) setMessages(prev => ({ ...prev, [selectedChat.id]: serverMessages.map(message => apiMessageToMessage(message, session.user.id)) })) } catch { if (!cancelled) setMessages(prev => ({ ...prev, [selectedChat.id]: prev[selectedChat.id] || [] })) } }
     load(); return () => { cancelled = true }
   }, [session, selectedChat?.id])
 
   if (!session) return <AuthScreen onAuthenticated={setSession} />
   const startCall = (kind: 'audio' | 'video') => setCall({ kind, state: 'calling' })
-  const sendMessage = async (chat: Chat, text: string) => { if (!chat.userId) return; let conversationId = conversationIds[chat.id]; if (!conversationId) { const created = await apiRequest<{ id: string }>(`/conversations/with/${chat.userId}`, { method: 'POST' }, session.token); conversationId = created.id; setConversationIds(prev => ({ ...prev, [chat.id]: created.id })); socketRef.current?.emit('conversation:join', created.id) }; const serverMessage = await apiRequest<ApiMessage>(`/conversations/${conversationId}/messages`, { method: 'POST', body: JSON.stringify({ body: text }) }, session.token); const next = apiMessageToMessage(serverMessage, session.user.id); setMessages(prev => prev[chat.id]?.some(message => message.id === next.id) ? prev : ({ ...prev, [chat.id]: [...(prev[chat.id] || []), next] })) }
+  const sendMessage = async (chat: Chat, text: string) => { if (!chat.userId) return; let conversationId = conversationIds[chat.id]; if (!conversationId) { const created = await apiRequest<{ id: string }>(`/conversations/with/${chat.userId}`, { method: 'POST' }, session.token); conversationId = created.id; conversationIdsRef.current = { ...conversationIdsRef.current, [chat.id]: created.id }; setConversationIds(prev => ({ ...prev, [chat.id]: created.id })); socketRef.current?.emit('conversation:join', created.id) }; const serverMessage = await apiRequest<ApiMessage>(`/conversations/${conversationId}/messages`, { method: 'POST', body: JSON.stringify({ body: text }) }, session.token); const next = apiMessageToMessage(serverMessage, session.user.id); setMessages(prev => prev[chat.id]?.some(message => message.id === next.id) ? prev : ({ ...prev, [chat.id]: [...(prev[chat.id] || []), next] })) }
   const searchContacts = (query: string) => { if (!query.trim()) { setSearchResults([]); return }; apiRequest<Contact[]>(`/contacts/search?q=${encodeURIComponent(query)}`, {}, session.token).then(setSearchResults).catch(() => setSearchResults([])) }
   const addContact = async (username: string) => { await apiRequest('/contacts/requests', { method: 'POST', body: JSON.stringify({ username }) }, session.token) }
   const openContact = (contact: Contact) => { setSelectedId(contact.id); setActiveNav('chats') }
