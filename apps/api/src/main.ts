@@ -2,7 +2,7 @@ import 'reflect-metadata'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { NestFactory } from '@nestjs/core'
-import { Body, CanActivate, Controller, ExecutionContext, Get, Injectable, Module, Param, Post, Query, Req, UnauthorizedException, BadRequestException, UseGuards, ValidationPipe } from '@nestjs/common'
+import { Body, CanActivate, Controller, ExecutionContext, Get, Injectable, Module, Param, Post, Query, Req, UnauthorizedException, BadRequestException, ForbiddenException, UseGuards, ValidationPipe } from '@nestjs/common'
 import { WebSocketGateway, WebSocketServer, SubscribeMessage, ConnectedSocket, MessageBody, OnGatewayConnection, OnGatewayDisconnect, WsException } from '@nestjs/websockets'
 import { Server, Socket } from 'socket.io'
 import { Pool } from 'pg'
@@ -23,6 +23,16 @@ class DbService {
   async onModuleInit() {
     const schema = readFileSync(join(process.cwd(), 'schema.sql'), 'utf8')
     await this.pool.query(schema)
+    await this.ensureAdmin()
+  }
+
+  private async ensureAdmin() {
+    const username = process.env.ADMIN_USERNAME
+    const email = process.env.ADMIN_EMAIL
+    const password = process.env.ADMIN_PASSWORD
+    if (!username || !email || !password) return
+    const passwordHash = await bcrypt.hash(password, 12)
+    await this.pool.query('INSERT INTO users (username, display_name, email, password_hash, role) VALUES ($1, $2, $3, $4, \'admin\') ON CONFLICT (username) DO UPDATE SET display_name = EXCLUDED.display_name, email = EXCLUDED.email, password_hash = EXCLUDED.password_hash, role = \'admin\'', [username.toLowerCase(), 'Contak Administrator', email.toLowerCase(), passwordHash])
   }
 
   query(text: string, values: unknown[] = []) { return this.pool.query(text, values) }
@@ -49,6 +59,20 @@ class AuthGuard implements CanActivate {
   }
 }
 
+@Injectable()
+class AdminGuard implements CanActivate {
+  constructor(private readonly db: DbService) {}
+  async canActivate(context: ExecutionContext) {
+    const request = context.switchToHttp().getRequest<AuthRequest>()
+    const userId = userFromToken(request.headers.authorization?.replace(/^Bearer\s+/i, ''))
+    if (!userId) throw new UnauthorizedException('A valid bearer token is required')
+    const result = await this.db.query('SELECT role FROM users WHERE id = $1', [userId])
+    if (result.rows[0]?.role !== 'admin') throw new ForbiddenException('Administrator access is required')
+    request.userId = userId
+    return true
+  }
+}
+
 class RegisterDto { @IsString() @MinLength(3) username!: string; @IsString() @MinLength(2) displayName!: string; @IsEmail() email!: string; @IsString() @MinLength(8) password!: string }
 class LoginDto { @IsString() username!: string; @IsString() password!: string }
 class MessageDto { @IsString() @MinLength(1) body!: string }
@@ -67,20 +91,20 @@ class AuthController {
     const username = body.username.trim().toLowerCase()
     const passwordHash = await bcrypt.hash(body.password, 12)
     try {
-      const result = await this.db.query('INSERT INTO users (username, display_name, email, password_hash) VALUES ($1, $2, $3, $4) RETURNING id, username, display_name, email, created_at', [username, body.displayName.trim(), body.email.trim().toLowerCase(), passwordHash])
+      const result = await this.db.query('INSERT INTO users (username, display_name, email, password_hash) VALUES ($1, $2, $3, $4) RETURNING id, username, display_name, email, role, created_at', [username, body.displayName.trim(), body.email.trim().toLowerCase(), passwordHash])
       const user = result.rows[0]
       return { user, token: issueToken(user.id) }
     } catch (error: any) { if (error.code === '23505') throw new BadRequestException('Username or email is already registered'); throw error }
   }
   @Post('login') async login(@Body() body: LoginDto) {
-    const result = await this.db.query('SELECT id, username, display_name, email, password_hash, created_at FROM users WHERE username = $1', [body.username.trim().toLowerCase()])
+    const result = await this.db.query('SELECT id, username, display_name, email, password_hash, role, created_at FROM users WHERE username = $1', [body.username.trim().toLowerCase()])
     const user = result.rows[0]
     if (!user || !(await bcrypt.compare(body.password, user.password_hash))) throw new UnauthorizedException('Invalid username or password')
     const { password_hash: _, ...safeUser } = user
     return { user: safeUser, token: issueToken(user.id) }
   }
   @UseGuards(AuthGuard)
-  @Get('me') async me(@Req() req: AuthRequest) { const userId = req.userId!; const result = await this.db.query('SELECT id, username, display_name, email, created_at FROM users WHERE id = $1', [userId]); return result.rows[0] }
+  @Get('me') async me(@Req() req: AuthRequest) { const userId = req.userId!; const result = await this.db.query('SELECT id, username, display_name, email, role, created_at FROM users WHERE id = $1', [userId]); return result.rows[0] }
 }
 
 @Controller('api/contacts')
@@ -118,7 +142,32 @@ class ConversationsController {
   @Post(':id/messages') async send(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: MessageDto) { await this.assertParticipant(id, req.userId!); const created = await this.db.query('INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id, body, created_at, sender_id', [id, req.userId!, body.body.trim()]); const result = await this.db.query('SELECT m.id, m.conversation_id, m.body, m.created_at, m.sender_id, u.username, u.display_name FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = $1', [created.rows[0].id]); const message = result.rows[0]; this.realtime.broadcastMessage(id, message); return message }
 }
 
-@Module({ controllers: [HealthController, AuthController, ContactsController, ConversationsController], providers: [DbService, PresenceService, AuthGuard, RealtimeGateway] })
+@Controller('api/admin')
+@UseGuards(AdminGuard)
+class AdminController {
+  constructor(private readonly db: DbService) {}
+  @Get('overview') async overview() {
+    const [users, activeUsers, conversations, messages] = await Promise.all([
+      this.db.query('SELECT count(*)::int AS count FROM users'),
+      this.db.query("SELECT count(*)::int AS count FROM users WHERE created_at > now() - interval '24 hours'"),
+      this.db.query("SELECT count(*)::int AS count FROM conversations WHERE created_at > date_trunc('day', now())"),
+      this.db.query("SELECT count(*)::int AS count FROM messages WHERE created_at > date_trunc('day', now())"),
+    ])
+    return { totalUsers: users.rows[0].count, activeUsers: activeUsers.rows[0].count, conversationsToday: conversations.rows[0].count, messagesToday: messages.rows[0].count, apiHealth: 'Healthy' }
+  }
+  @Get('users') async listUsers(@Query('limit') limit = '8', @Query('offset') offset = '0', @Query('q') query = '') {
+    const safeLimit = Math.min(Math.max(Number(limit) || 8, 1), 50); const safeOffset = Math.max(Number(offset) || 0, 0); const search = `%${query.trim()}%`
+    const result = await this.db.query("SELECT u.id, u.username, u.display_name, u.role, u.created_at, COALESCE((SELECT max(m.created_at) FROM messages m WHERE m.sender_id = u.id), u.created_at) AS last_active, (SELECT count(*)::int FROM messages m WHERE m.sender_id = u.id) AS messages_count FROM users u WHERE u.username ILIKE $1 OR u.display_name ILIKE $1 ORDER BY last_active DESC LIMIT $2 OFFSET $3", [search, safeLimit, safeOffset])
+    const total = await this.db.query('SELECT count(*)::int AS count FROM users WHERE username ILIKE $1 OR display_name ILIKE $1', [search])
+    return { users: result.rows, total: total.rows[0].count, limit: safeLimit, offset: safeOffset }
+  }
+  @Get('activity') async activity() {
+    const result = await this.db.query("SELECT 'New user' AS type, display_name AS subject, '@' || username AS detail, created_at FROM users ORDER BY created_at DESC LIMIT 8")
+    return result.rows
+  }
+}
+
+@Module({ controllers: [HealthController, AuthController, ContactsController, ConversationsController, AdminController], providers: [DbService, PresenceService, AuthGuard, AdminGuard, RealtimeGateway] })
 class AppModule {}
 
 async function bootstrap() { const app = await NestFactory.create(AppModule); app.enableCors({ origin: true, credentials: true }); app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true })); await app.listen(Number(process.env.PORT || 3000), '0.0.0.0') }

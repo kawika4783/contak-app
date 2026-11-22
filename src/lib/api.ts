@@ -1,4 +1,4 @@
-export type User = { id: string; username: string; display_name: string; email: string }
+export type User = { id: string; username: string; display_name: string; email: string; role: 'user' | 'admin' }
 export type Contact = { id: string; username: string; display_name: string; favorite?: boolean }
 export type ApiMessage = { id: string; body: string; created_at: string; sender_id: string; username: string; display_name: string }
 

@@ -6,8 +6,11 @@ CREATE TABLE IF NOT EXISTS users (
   display_name varchar(80) NOT NULL,
   email varchar(255) NOT NULL UNIQUE,
   password_hash text NOT NULL,
+  role varchar(16) NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role varchar(16) NOT NULL DEFAULT 'user';
+CREATE INDEX IF NOT EXISTS users_role_idx ON users (role);
 
 CREATE TABLE IF NOT EXISTS contact_requests (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
