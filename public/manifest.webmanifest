@@ -1,0 +1,10 @@
+{
+  "name": "Contak.App",
+  "short_name": "Contak",
+  "description": "Private communication in Midnight Glass.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090B17",
+  "theme_color": "#090B17",
+  "icons": []
+}
