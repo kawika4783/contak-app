@@ -7,10 +7,15 @@ CREATE TABLE IF NOT EXISTS users (
   email varchar(255) NOT NULL UNIQUE,
   password_hash text NOT NULL,
   role varchar(16) NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  suspended_until timestamptz,
+  suspension_reason varchar(255),
   created_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS role varchar(16) NOT NULL DEFAULT 'user';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_until timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS suspension_reason varchar(255);
 CREATE INDEX IF NOT EXISTS users_role_idx ON users (role);
+CREATE INDEX IF NOT EXISTS users_suspended_until_idx ON users (suspended_until);
 
 CREATE TABLE IF NOT EXISTS contact_requests (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -62,3 +67,17 @@ CREATE TABLE IF NOT EXISTS message_receipts (
   read_at timestamptz,
   PRIMARY KEY (message_id, user_id)
 );
+
+CREATE TABLE IF NOT EXISTS reports (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  reporter_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reported_user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  message_id uuid REFERENCES messages(id) ON DELETE SET NULL,
+  reason varchar(120) NOT NULL,
+  details text,
+  status varchar(16) NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved', 'dismissed')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  resolved_at timestamptz,
+  CHECK (reporter_id <> reported_user_id)
+);
+CREATE INDEX IF NOT EXISTS reports_status_created_idx ON reports (status, created_at DESC);

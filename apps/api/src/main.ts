@@ -50,10 +50,13 @@ function userFromToken(token?: string) { if (!token) return null; try { const de
 
 @Injectable()
 class AuthGuard implements CanActivate {
-  canActivate(context: ExecutionContext) {
+  constructor(private readonly db: DbService) {}
+  async canActivate(context: ExecutionContext) {
     const request = context.switchToHttp().getRequest<AuthRequest>()
     const userId = userFromToken(request.headers.authorization?.replace(/^Bearer\s+/i, ''))
     if (!userId) throw new UnauthorizedException('A valid bearer token is required')
+    const result = await this.db.query('SELECT suspended_until FROM users WHERE id = $1', [userId])
+    if (result.rows[0]?.suspended_until && new Date(result.rows[0].suspended_until).getTime() > Date.now()) throw new ForbiddenException('This account is temporarily restricted')
     request.userId = userId
     return true
   }
@@ -157,13 +160,38 @@ class AdminController {
   }
   @Get('users') async listUsers(@Query('limit') limit = '8', @Query('offset') offset = '0', @Query('q') query = '') {
     const safeLimit = Math.min(Math.max(Number(limit) || 8, 1), 50); const safeOffset = Math.max(Number(offset) || 0, 0); const search = `%${query.trim()}%`
-    const result = await this.db.query("SELECT u.id, u.username, u.display_name, u.role, u.created_at, COALESCE((SELECT max(m.created_at) FROM messages m WHERE m.sender_id = u.id), u.created_at) AS last_active, (SELECT count(*)::int FROM messages m WHERE m.sender_id = u.id) AS messages_count FROM users u WHERE u.username ILIKE $1 OR u.display_name ILIKE $1 ORDER BY last_active DESC LIMIT $2 OFFSET $3", [search, safeLimit, safeOffset])
+    const result = await this.db.query("SELECT u.id, u.username, u.display_name, u.role, u.suspended_until, u.suspension_reason, u.created_at, COALESCE((SELECT max(m.created_at) FROM messages m WHERE m.sender_id = u.id), u.created_at) AS last_active, (SELECT count(*)::int FROM messages m WHERE m.sender_id = u.id) AS messages_count FROM users u WHERE u.username ILIKE $1 OR u.display_name ILIKE $1 ORDER BY last_active DESC LIMIT $2 OFFSET $3", [search, safeLimit, safeOffset])
     const total = await this.db.query('SELECT count(*)::int AS count FROM users WHERE username ILIKE $1 OR display_name ILIKE $1', [search])
     return { users: result.rows, total: total.rows[0].count, limit: safeLimit, offset: safeOffset }
   }
   @Get('activity') async activity() {
     const result = await this.db.query("SELECT 'New user' AS type, display_name AS subject, '@' || username AS detail, created_at FROM users ORDER BY created_at DESC LIMIT 8")
     return result.rows
+  }
+  @Get('reports') async reports(@Query('status') status = 'open') {
+    const result = await this.db.query("SELECT r.id, r.reason, r.details, r.status, r.created_at, r.resolved_at, reporter.username AS reporter_username, reported.username AS reported_username, reported.display_name AS reported_display_name FROM reports r JOIN users reporter ON reporter.id = r.reporter_id JOIN users reported ON reported.id = r.reported_user_id WHERE r.status = $1 ORDER BY r.created_at DESC LIMIT 50", [status])
+    return result.rows
+  }
+  @Post('reports/:id/resolve') async resolveReport(@Param('id') id: string, @Body() body: { status?: 'resolved' | 'dismissed' }) {
+    const status = body.status === 'dismissed' ? 'dismissed' : 'resolved'
+    const result = await this.db.query('UPDATE reports SET status = $1, resolved_at = now() WHERE id = $2 RETURNING id, status, resolved_at', [status, id])
+    if (!result.rows[0]) throw new BadRequestException('Report not found')
+    return result.rows[0]
+  }
+  @Post('users/:id/restrict') async restrictUser(@Param('id') id: string, @Body() body: { reason?: string; hours?: number }) {
+    const hours = Math.min(Math.max(Number(body.hours) || 24, 1), 720); const reason = (body.reason || 'Policy review').trim().slice(0, 255)
+    const result = await this.db.query("UPDATE users SET suspended_until = now() + ($1 || ' hours')::interval, suspension_reason = $2 WHERE id = $3 AND role <> 'admin' RETURNING id, username, suspended_until, suspension_reason", [hours, reason, id])
+    if (!result.rows[0]) throw new BadRequestException('User not found or cannot be restricted')
+    return result.rows[0]
+  }
+  @Post('users/:id/unrestrict') async unrestrictUser(@Param('id') id: string) {
+    const result = await this.db.query('UPDATE users SET suspended_until = NULL, suspension_reason = NULL WHERE id = $1 RETURNING id, username', [id])
+    if (!result.rows[0]) throw new BadRequestException('User not found')
+    return result.rows[0]
+  }
+  @Get('system') async system() {
+    await this.db.query('SELECT 1')
+    return { api: 'Healthy', database: 'Healthy', realtime: 'Healthy', version: '0.1.0', uptimeSeconds: Math.round(process.uptime()), environment: process.env.NODE_ENV || 'production' }
   }
 }
 
