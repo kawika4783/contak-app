@@ -139,7 +139,36 @@ class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
 class ConversationsController {
   constructor(private readonly db: DbService, private readonly realtime: RealtimeGateway) {}
   private async assertParticipant(conversationId: string, userId: string) { const result = await this.db.query('SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2', [conversationId, userId]); if (!result.rowCount) throw new UnauthorizedException('Conversation access denied') }
-  @Get() async list(@Req() req: AuthRequest) { const result = await this.db.query('SELECT c.id, c.created_at, json_agg(json_build_object(\'id\', u.id, \'username\', u.username, \'displayName\', u.display_name)) FILTER (WHERE u.id <> $1) AS participants FROM conversations c JOIN conversation_participants cp ON cp.conversation_id = c.id JOIN users u ON u.id = cp.user_id WHERE c.id IN (SELECT conversation_id FROM conversation_participants WHERE user_id = $1) GROUP BY c.id ORDER BY c.created_at DESC', [req.userId!]); return result.rows }
+  @Get() async list(@Req() req: AuthRequest) {
+    const result = await this.db.query(`
+      SELECT c.id, c.created_at,
+        other_user.id AS participant_id,
+        other_user.username AS participant_username,
+        other_user.display_name AS participant_display_name,
+        last_message.id AS last_message_id,
+        last_message.body AS last_message_body,
+        last_message.created_at AS last_message_created_at,
+        last_message.sender_id AS last_message_sender_id
+      FROM conversations c
+      JOIN conversation_participants mine ON mine.conversation_id = c.id AND mine.user_id = $1
+      JOIN conversation_participants other_participant ON other_participant.conversation_id = c.id AND other_participant.user_id <> $1
+      JOIN users other_user ON other_user.id = other_participant.user_id
+      LEFT JOIN LATERAL (
+        SELECT m.id, m.body, m.created_at, m.sender_id
+        FROM messages m
+        WHERE m.conversation_id = c.id
+        ORDER BY m.created_at DESC, m.id DESC
+        LIMIT 1
+      ) last_message ON true
+      ORDER BY COALESCE(last_message.created_at, c.created_at) DESC
+    `, [req.userId!])
+    return result.rows.map(row => ({
+      id: row.id,
+      created_at: row.created_at,
+      participant: { id: row.participant_id, username: row.participant_username, display_name: row.participant_display_name },
+      last_message: row.last_message_id ? { id: row.last_message_id, conversation_id: row.id, body: row.last_message_body, created_at: row.last_message_created_at, sender_id: row.last_message_sender_id } : null,
+    }))
+  }
   @Post('with/:userId') async withUser(@Req() req: AuthRequest, @Param('userId') userId: string) { const existing = await this.db.query('SELECT c.id FROM conversations c JOIN conversation_participants a ON a.conversation_id = c.id AND a.user_id = $1 JOIN conversation_participants b ON b.conversation_id = c.id AND b.user_id = $2 WHERE (SELECT count(*) FROM conversation_participants x WHERE x.conversation_id = c.id) = 2 LIMIT 1', [req.userId!, userId]); if (existing.rows[0]) return { id: existing.rows[0].id }; const created = await this.db.query('INSERT INTO conversations DEFAULT VALUES RETURNING id'); const id = created.rows[0].id; await this.db.query('INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1, $2), ($1, $3)', [id, req.userId!, userId]); return { id } }
   @Get(':id/messages') async messages(@Req() req: AuthRequest, @Param('id') id: string, @Query('limit') limit = '50') { await this.assertParticipant(id, req.userId!); const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100); const result = await this.db.query('SELECT m.id, m.conversation_id, m.body, m.created_at, m.sender_id, u.username, u.display_name FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.conversation_id = $1 ORDER BY m.created_at DESC, m.id DESC LIMIT $2', [id, safeLimit]); return result.rows.reverse() }
   @Post(':id/messages') async send(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: MessageDto) { await this.assertParticipant(id, req.userId!); const created = await this.db.query('INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id, body, created_at, sender_id', [id, req.userId!, body.body.trim()]); const result = await this.db.query('SELECT m.id, m.conversation_id, m.body, m.created_at, m.sender_id, u.username, u.display_name FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = $1', [created.rows[0].id]); const message = result.rows[0]; this.realtime.broadcastMessage(id, message); return message }
