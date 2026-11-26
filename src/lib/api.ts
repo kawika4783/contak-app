@@ -1,7 +1,7 @@
 export type User = { id: string; username: string; display_name: string; email: string; role: 'user' | 'admin' }
 export type Contact = { id: string; username: string; display_name: string; favorite?: boolean }
-export type ApiMessage = { id: string; body: string; created_at: string; sender_id: string; username: string; display_name: string }
-export type ApiConversation = { id: string; created_at: string; participant: Contact; last_message: ApiMessage | null }
+export type ApiMessage = { id: string; body: string; created_at: string; sender_id: string; username: string; display_name: string; read?: boolean }
+export type ApiConversation = { id: string; created_at: string; participant: Contact; last_message: ApiMessage | null; unread_count: number }
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
 
