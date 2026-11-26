@@ -194,6 +194,8 @@ function App() {
   const chatList = useMemo(() => { const merged = new Map<string, Chat>(); contacts.forEach(contact => merged.set(contact.id, contactToChat(contact))); conversations.forEach(conversation => merged.set(conversation.participant.id, contactToChat(conversation.participant, conversation))); return [...merged.values()] }, [contacts, conversations])
   const selectedChat = useMemo(() => chatList.find(chat => chat.id === selectedId) || chatList[0] || null, [chatList, selectedId])
 
+  useEffect(() => { if (session && !selectedId && chatList[0]) setSelectedId(chatList[0].id) }, [session, selectedId, chatList])
+
   useEffect(() => {
     if (!session) return
     Promise.all([apiRequest<Contact[]>('/contacts', {}, session.token), apiRequest<ApiConversation[]>('/conversations', {}, session.token)]).then(([contactResult, conversationResult]) => { setContacts(contactResult); setConversations(conversationResult); const ids = Object.fromEntries(conversationResult.map(item => [item.participant.id, item.id])); conversationIdsRef.current = ids; setConversationIds(ids); if (!selectedId) setSelectedId(conversationResult[0]?.participant.id || contactResult[0]?.id || '') }).catch(() => undefined)
