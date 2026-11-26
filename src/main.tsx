@@ -15,9 +15,9 @@ type Message = { id: string | number; from: 'me' | 'them'; text: string; time: s
 type AuthSession = { token: string; user: User }
 
 const chats: Chat[] = [
-  { id: 'alex', name: 'Alex Morgan', handle: '@alexm', initials: 'AM', color: '#7c3aed', status: 'online', time: '10:24 AM', preview: 'Alex is typing...', unread: 2, avatar: 'https://i.pravatar.cc/160?img=11' },
-  { id: 'priya', name: 'Priya Shah', handle: '@priyashah', initials: 'PS', color: '#06b6d4', status: 'online', time: '9:47 AM', preview: 'Meeting moved to 3 PM', avatar: 'https://i.pravatar.cc/160?img=47' },
-  { id: 'jordan', name: 'Jordan Lee', handle: '@jlee', initials: 'JL', color: '#f59e0b', status: 'away', time: 'Yesterday', preview: 'Can you send the draft?', unread: 1, avatar: 'https://i.pravatar.cc/160?img=12' },
+  { id: 'alex', name: 'Alex Morgan', handle: '@alexm', initials: 'AM', color: '#7c3aed', status: 'online', time: '10:24 AM', preview: 'Alex is typing...', unread: 2, avatar: '' },
+  { id: 'priya', name: 'Priya Shah', handle: '@priyashah', initials: 'PS', color: '#06b6d4', status: 'online', time: '9:47 AM', preview: 'Meeting moved to 3 PM', avatar: '' },
+  { id: 'jordan', name: 'Jordan Lee', handle: '@jlee', initials: 'JL', color: '#f59e0b', status: 'away', time: 'Yesterday', preview: 'Can you send the draft?', unread: 1, avatar: '' },
   { id: 'team', name: 'Team Sync', handle: '4 members', initials: 'TS', color: '#4338ca', status: 'online', time: 'Yesterday', preview: 'Jordan: Looks good! ✓', avatar: '' },
   { id: 'design', name: 'Design Review', handle: '3 members', initials: 'DR', color: '#0f766e', status: 'offline', time: 'Tue', preview: 'Priya: Added my comments', avatar: '' },
   { id: 'alpha', name: 'Project Alpha', handle: '5 members', initials: 'PA', color: '#be185d', status: 'offline', time: 'Mon', preview: 'Alex: Deploying today ✓✓', avatar: '' },
