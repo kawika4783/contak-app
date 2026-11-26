@@ -151,6 +151,22 @@ class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
   broadcastRead(conversationId: string, userId: string) { this.server.to(conversationId).emit('receipt:read', { conversationId, userId }) }
 }
 
+@Controller('api/calls')
+@UseGuards(AuthGuard)
+class CallsController {
+  @Get('ice') iceServers() {
+    const host = process.env.TURN_HOST || 'contak-app.srv1831469.hstgr.cloud'
+    const username = process.env.TURN_USERNAME || ''
+    const credential = process.env.TURN_PASSWORD || ''
+    return {
+      iceServers: [
+        { urls: [`stun:${host}:3478`] },
+        ...(username && credential ? [{ urls: [`turn:${host}:3478?transport=udp`, `turn:${host}:3478?transport=tcp`], username, credential }] : []),
+      ],
+    }
+  }
+}
+
 @Controller('api/conversations')
 @UseGuards(AuthGuard)
 class ConversationsController {
@@ -265,7 +281,7 @@ class AdminController {
   }
 }
 
-@Module({ controllers: [HealthController, AuthController, ContactsController, ConversationsController, AdminController], providers: [DbService, PresenceService, AuthGuard, AdminGuard, RealtimeGateway] })
+@Module({ controllers: [HealthController, AuthController, ContactsController, CallsController, ConversationsController, AdminController], providers: [DbService, PresenceService, AuthGuard, AdminGuard, RealtimeGateway] })
 class AppModule {}
 
 async function bootstrap() { const app = await NestFactory.create(AppModule); app.enableCors({ origin: true, credentials: true }); app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true })); await app.listen(Number(process.env.PORT || 3000), '0.0.0.0') }
