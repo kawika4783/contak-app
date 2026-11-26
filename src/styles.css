@@ -25,6 +25,9 @@
 @media (max-width: 760px) { .profile-form { grid-template-columns: 1fr; gap: 12px; }.profile-form label { min-width: 0; }.profile-form input { width: 100%; min-width: 0; }.profile-form .primary-btn { width: 100%; } }
 .conversation-workspace { grid-column: 2 / -1; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 240px; }
 .conversation-back { width: 34px; height: 34px; flex: 0 0 auto; }
+.call-media { width: min(100%, 280px); height: 170px; margin: 0 auto 18px; border: 1px solid rgba(166,145,255,.42); border-radius: 18px; object-fit: cover; background: #070914; box-shadow: 0 12px 30px rgba(0,0,0,.28); }
+.call-media-hidden { visibility: hidden; height: 0; margin: 0; }
+.call-error { margin: 14px 0 0; text-align: left; }
 .contact-copy { min-width: 0; }
 .contact-copy strong, .contact-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .contact-actions { display: flex; align-items: center; gap: 6px; }
