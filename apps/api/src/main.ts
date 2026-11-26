@@ -156,12 +156,13 @@ class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
 class CallsController {
   @Get('ice') iceServers() {
     const host = process.env.TURN_HOST || 'contak-app.srv1831469.hstgr.cloud'
+    const port = process.env.TURN_PORT || '3479'
     const username = process.env.TURN_USERNAME || ''
     const credential = process.env.TURN_PASSWORD || ''
     return {
       iceServers: [
-        { urls: [`stun:${host}:3478`] },
-        ...(username && credential ? [{ urls: [`turn:${host}:3478?transport=udp`, `turn:${host}:3478?transport=tcp`], username, credential }] : []),
+        { urls: [`stun:${host}:${port}`] },
+        ...(username && credential ? [{ urls: [`turn:${host}:${port}?transport=udp`, `turn:${host}:${port}?transport=tcp`], username, credential }] : []),
       ],
     }
   }
