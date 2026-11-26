@@ -63,3 +63,49 @@
   .call-video-stage { width: 100%; }
   .call-media { height: clamp(160px, 42vw, 240px); }
 }
+
+/* Contact layout controls and immersive video calls. */
+.contact-view-toggle { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid rgba(151,164,228,.18); border-radius: 10px; background: rgba(31,36,69,.46); }
+.contact-view-toggle button { display: grid; place-items: center; width: 29px; height: 27px; border-radius: 7px; color: #8d99b8; background: transparent; }
+.contact-view-toggle button.active { color: #fff; background: rgba(139,92,246,.42); box-shadow: inset 0 0 0 1px rgba(166,145,255,.32); }
+.contacts-grid-card { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 12px; }
+.contacts-grid-card > .contacts-card-heading, .contacts-grid-card > .contacts-empty { grid-column: 1 / -1; }
+.contacts-grid-card .contact-row { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-width: 0; gap: 9px; padding: 17px 12px 12px; border: 1px solid rgba(151,164,228,.14); border-radius: 16px; background: rgba(31,36,69,.28); text-align: center; }
+.contacts-grid-card .contact-avatar { width: 62px; height: 62px; border-radius: 20px; font-size: 16px; }
+.contacts-grid-card .contact-copy { flex: 0 1 auto; width: 100%; }
+.contacts-grid-card .contact-actions { width: 100%; justify-content: center; flex-wrap: wrap; }
+.contacts-grid-card .contact-open { flex: 1; justify-content: center; }
+.video-call-overlay { padding: 0; }
+.video-call-card { width: 100%; height: 100%; max-height: none; padding: 0; border: 0; border-radius: 0; background: #070914; box-shadow: none; overflow: hidden; text-align: left; }
+.video-call-card .call-glow { display: none; }
+.video-call-card .call-video-stage { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; margin: 0; }
+.video-call-card .call-media { width: 100%; height: 100%; border: 0; border-radius: 0; object-fit: cover; box-shadow: none; }
+.video-call-card .call-local-media { right: 18px; bottom: 126px; width: 116px; height: 164px; border-color: rgba(255,255,255,.55); border-radius: 16px; }
+.video-call-card .call-eyebrow { position: absolute; z-index: 3; top: 22px; left: 22px; margin: 0; padding: 8px 11px; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; color: #eef0ff; background: rgba(7,9,20,.52); backdrop-filter: blur(12px); }
+.video-call-card .call-close { z-index: 4; top: 18px; right: 18px; color: #e6e9ff; background: rgba(7,9,20,.52); }
+.video-call-card h2 { position: absolute; z-index: 3; left: 24px; bottom: 83px; margin: 0; color: #fff; text-shadow: 0 2px 14px rgba(0,0,0,.55); }
+.video-call-card .call-type { position: absolute; z-index: 3; left: 24px; bottom: 57px; justify-content: flex-start; color: #d7dcf4; text-shadow: 0 2px 12px rgba(0,0,0,.55); }
+.video-call-card .call-error { position: absolute; z-index: 4; right: 24px; bottom: 116px; left: 24px; margin: 0; }
+.video-call-card .ringtone-preview { position: absolute; z-index: 3; top: 22px; left: 135px; margin: 0; background: rgba(7,9,20,.52); backdrop-filter: blur(12px); }
+.video-call-card .call-controls { position: absolute; z-index: 4; right: 24px; bottom: 18px; left: 24px; margin: 0; }
+.video-call-card .call-controls button { width: 100%; max-width: 220px; margin: 0 auto; }
+
+@media (max-width: 760px) {
+  .contact-row { flex-wrap: nowrap; align-items: center; gap: 9px; }
+  .contact-actions { width: auto; margin-left: 0; flex: 0 0 auto; flex-wrap: nowrap; justify-content: flex-end; }
+  .contact-open { flex: 0 0 38px; width: 38px; height: 38px; padding: 0; justify-content: center; }
+  .contact-open-label { display: none; }
+  .contact-add { flex: 0 0 38px; width: 38px; height: 38px; padding: 0; justify-content: center; font-size: 0; }
+  .contact-call { width: 38px; height: 38px; }
+  .contacts-grid-card { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .contacts-grid-card .contact-row { flex-wrap: wrap; align-items: center; }
+  .contacts-grid-card .contact-actions { width: 100%; flex-wrap: wrap; }
+  .contacts-grid-card .contact-open { flex: 1; width: auto; padding: 0 8px; }
+  .contacts-grid-card .contact-open-label { display: inline; }
+  .video-call-card .call-local-media { right: 14px; bottom: 123px; width: 100px; height: 142px; }
+  .video-call-card .call-eyebrow { top: 16px; left: 16px; }
+  .video-call-card .call-close { top: 14px; right: 14px; }
+  .video-call-card h2 { left: 18px; bottom: 79px; font-size: 20px; }
+  .video-call-card .call-type { left: 18px; bottom: 54px; }
+  .video-call-card .call-controls { right: 18px; bottom: 16px; left: 18px; }
+}
