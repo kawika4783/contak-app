@@ -143,6 +143,7 @@ class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('typing:start') typingStart(@ConnectedSocket() socket: Socket, @MessageBody() conversationId: string) { socket.to(conversationId).emit('typing:update', { conversationId, userId: socket.data.userId, status: 'typing' }); return { ok: true } }
   @SubscribeMessage('typing:stop') typingStop(@ConnectedSocket() socket: Socket, @MessageBody() conversationId: string) { socket.to(conversationId).emit('typing:update', { conversationId, userId: socket.data.userId, status: 'idle' }); return { ok: true } }
   broadcastMessage(conversationId: string, message: unknown) { this.server.to(conversationId).emit('message:new', message) }
+  broadcastRead(conversationId: string, userId: string) { this.server.to(conversationId).emit('receipt:read', { conversationId, userId }) }
 }
 
 @Controller('api/conversations')
@@ -159,7 +160,8 @@ class ConversationsController {
         last_message.id AS last_message_id,
         last_message.body AS last_message_body,
         last_message.created_at AS last_message_created_at,
-        last_message.sender_id AS last_message_sender_id
+        last_message.sender_id AS last_message_sender_id,
+        COALESCE((SELECT count(*)::int FROM messages unread_message LEFT JOIN message_receipts unread_receipt ON unread_receipt.message_id = unread_message.id AND unread_receipt.user_id = $1 WHERE unread_message.conversation_id = c.id AND unread_message.sender_id <> $1 AND unread_receipt.read_at IS NULL), 0) AS unread_count
       FROM conversations c
       JOIN conversation_participants mine ON mine.conversation_id = c.id AND mine.user_id = $1
       JOIN conversation_participants other_participant ON other_participant.conversation_id = c.id AND other_participant.user_id <> $1
@@ -178,11 +180,25 @@ class ConversationsController {
       created_at: row.created_at,
       participant: { id: row.participant_id, username: row.participant_username, display_name: row.participant_display_name },
       last_message: row.last_message_id ? { id: row.last_message_id, conversation_id: row.id, body: row.last_message_body, created_at: row.last_message_created_at, sender_id: row.last_message_sender_id } : null,
+      unread_count: row.unread_count,
     }))
   }
   @Post('with/:userId') async withUser(@Req() req: AuthRequest, @Param('userId') userId: string) { const existing = await this.db.query('SELECT c.id FROM conversations c JOIN conversation_participants a ON a.conversation_id = c.id AND a.user_id = $1 JOIN conversation_participants b ON b.conversation_id = c.id AND b.user_id = $2 WHERE (SELECT count(*) FROM conversation_participants x WHERE x.conversation_id = c.id) = 2 LIMIT 1', [req.userId!, userId]); if (existing.rows[0]) return { id: existing.rows[0].id }; const created = await this.db.query('INSERT INTO conversations DEFAULT VALUES RETURNING id'); const id = created.rows[0].id; await this.db.query('INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1, $2), ($1, $3)', [id, req.userId!, userId]); return { id } }
-  @Get(':id/messages') async messages(@Req() req: AuthRequest, @Param('id') id: string, @Query('limit') limit = '50') { await this.assertParticipant(id, req.userId!); const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100); const result = await this.db.query('SELECT m.id, m.conversation_id, m.body, m.created_at, m.sender_id, u.username, u.display_name FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.conversation_id = $1 ORDER BY m.created_at DESC, m.id DESC LIMIT $2', [id, safeLimit]); return result.rows.reverse() }
-  @Post(':id/messages') async send(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: MessageDto) { await this.assertParticipant(id, req.userId!); const created = await this.db.query('INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id, body, created_at, sender_id', [id, req.userId!, body.body.trim()]); const result = await this.db.query('SELECT m.id, m.conversation_id, m.body, m.created_at, m.sender_id, u.username, u.display_name FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = $1', [created.rows[0].id]); const message = result.rows[0]; this.realtime.broadcastMessage(id, message); return message }
+  private async markRead(conversationId: string, userId: string) {
+    const result = await this.db.query(`
+      INSERT INTO message_receipts (message_id, user_id, delivered_at, read_at)
+      SELECT m.id, $2, now(), now()
+      FROM messages m
+      WHERE m.conversation_id = $1 AND m.sender_id <> $2
+      ON CONFLICT (message_id, user_id) DO UPDATE
+      SET delivered_at = COALESCE(message_receipts.delivered_at, now()), read_at = COALESCE(message_receipts.read_at, now())
+      RETURNING message_id
+    `, [conversationId, userId])
+    if (result.rowCount) this.realtime.broadcastRead(conversationId, userId)
+  }
+  @Post(':id/read') async read(@Req() req: AuthRequest, @Param('id') id: string) { await this.assertParticipant(id, req.userId!); await this.markRead(id, req.userId!); return { ok: true } }
+  @Get(':id/messages') async messages(@Req() req: AuthRequest, @Param('id') id: string, @Query('limit') limit = '50') { await this.assertParticipant(id, req.userId!); await this.markRead(id, req.userId!); const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100); const result = await this.db.query('SELECT m.id, m.conversation_id, m.body, m.created_at, m.sender_id, u.username, u.display_name, EXISTS(SELECT 1 FROM message_receipts mr WHERE mr.message_id = m.id AND mr.user_id <> m.sender_id AND mr.read_at IS NOT NULL) AS read FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.conversation_id = $1 ORDER BY m.created_at DESC, m.id DESC LIMIT $2', [id, safeLimit]); return result.rows.reverse() }
+  @Post(':id/messages') async send(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: MessageDto) { await this.assertParticipant(id, req.userId!); const created = await this.db.query('INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id, body, created_at, sender_id', [id, req.userId!, body.body.trim()]); await this.db.query('INSERT INTO message_receipts (message_id, user_id, delivered_at) SELECT $1, cp.user_id, now() FROM conversation_participants cp WHERE cp.conversation_id = $2 AND cp.user_id <> $3 ON CONFLICT DO NOTHING', [created.rows[0].id, id, req.userId!]); const result = await this.db.query('SELECT m.id, m.conversation_id, m.body, m.created_at, m.sender_id, u.username, u.display_name, false AS read FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = $1', [created.rows[0].id]); const message = result.rows[0]; this.realtime.broadcastMessage(id, message); return message }
 }
 
 @Controller('api/admin')
