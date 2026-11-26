@@ -193,6 +193,15 @@ class AdminController {
     await this.db.query('SELECT 1')
     return { api: 'Healthy', database: 'Healthy', realtime: 'Healthy', version: '0.1.0', uptimeSeconds: Math.round(process.uptime()), environment: process.env.NODE_ENV || 'production' }
   }
+  @Get('conversations') async conversations() {
+    const [total, today, messagesToday, recent] = await Promise.all([
+      this.db.query('SELECT count(*)::int AS count FROM conversations'),
+      this.db.query("SELECT count(*)::int AS count FROM conversations WHERE created_at > date_trunc('day', now())"),
+      this.db.query("SELECT count(*)::int AS count FROM messages WHERE created_at > date_trunc('day', now())"),
+      this.db.query("SELECT c.id, c.created_at, count(DISTINCT m.id)::int AS messages_count, string_agg(DISTINCT u.display_name, ' · ') AS participants FROM conversations c JOIN conversation_participants cp ON cp.conversation_id = c.id JOIN users u ON u.id = cp.user_id LEFT JOIN messages m ON m.conversation_id = c.id GROUP BY c.id ORDER BY c.created_at DESC LIMIT 50"),
+    ])
+    return { total: total.rows[0].count, today: today.rows[0].count, messagesToday: messagesToday.rows[0].count, recent: recent.rows }
+  }
 }
 
 @Module({ controllers: [HealthController, AuthController, ContactsController, ConversationsController, AdminController], providers: [DbService, PresenceService, AuthGuard, AdminGuard, RealtimeGateway] })
