@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import {
   Activity, ArrowLeft, BarChart3, Bell, Camera, Check, CheckCheck, ChevronDown, CircleHelp, Clock3, Database, Edit3, FileText,
   Hash, Heart, Image, Inbox, LayoutGrid, List, Mic, MoreHorizontal, MoreVertical, Paperclip, Phone, Play,
-  Plus, Search, Send, Settings, Shield, ShieldCheck, Smile, Sparkles, UserCog, UserRoundPlus, UsersRound,
+  Download, FlipHorizontal2, Plus, RefreshCw, RotateCcw, Search, Send, Settings, Shield, ShieldCheck, Smile, Sparkles, UserCog, UserRoundPlus, UsersRound,
   Video, Volume2, X, Zap,
 } from 'lucide-react'
 import { io, type Socket } from 'socket.io-client'
@@ -162,6 +162,63 @@ function NoConversationsView({ onFindPeople }: { onFindPeople: () => void }) {
   return <div className="empty-view"><div className="empty-icon"><Inbox size={28} /></div><h1>No conversations yet</h1><p>Search for someone in Contacts to start your first private chat.</p><button className="primary-btn" onClick={onFindPeople}><UsersRound size={17} />Find people</button></div>
 }
 
+const cameraFilters = [
+  { id: 'natural', label: 'Natural', css: 'none' },
+  { id: 'mono', label: 'Mono', css: 'grayscale(1) contrast(1.08)' },
+  { id: 'warm', label: 'Warm', css: 'sepia(.28) saturate(1.2) contrast(1.04)' },
+  { id: 'neon', label: 'Neon', css: 'saturate(1.7) contrast(1.16) hue-rotate(12deg)' },
+  { id: 'soft', label: 'Soft focus', css: 'brightness(1.06) saturate(.82) contrast(.94)' },
+]
+
+function CameraStudio() {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user')
+  const [filterId, setFilterId] = useState('natural')
+  const [captured, setCaptured] = useState('')
+  const [error, setError] = useState('')
+  const activeFilter = cameraFilters.find(filter => filter.id === filterId) || cameraFilters[0]
+
+  useEffect(() => {
+    let cancelled = false
+    let stream: MediaStream | null = null
+    const start = async () => {
+      setError('')
+      setCaptured('')
+      if (!navigator.mediaDevices?.getUserMedia) { setError('Camera access is not supported in this browser.'); return }
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } } })
+        if (cancelled) { stream.getTracks().forEach(track => track.stop()); return }
+        if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play().catch(() => undefined) }
+      } catch (reason) {
+        if (!cancelled) setError(reason instanceof DOMException && reason.name === 'NotAllowedError' ? 'Camera permission is blocked. Allow camera access to use the studio.' : 'Unable to start the camera on this device.')
+      }
+    }
+    void start()
+    return () => { cancelled = true; stream?.getTracks().forEach(track => track.stop()); if (videoRef.current) videoRef.current.srcObject = null }
+  }, [facingMode])
+
+  const capture = () => {
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    if (!video || !canvas || video.readyState < 2 || !video.videoWidth) { setError('Wait for the camera preview to become ready.'); return }
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight
+    const context = canvas.getContext('2d')
+    if (!context) return
+    context.save(); context.filter = activeFilter.css
+    if (facingMode === 'user') { context.translate(canvas.width, 0); context.scale(-1, 1) }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height); context.restore()
+    setCaptured(canvas.toDataURL('image/jpeg', .9)); setError('')
+  }
+
+  const downloadCapture = () => {
+    if (!captured) return
+    const link = document.createElement('a'); link.href = captured; link.download = `contak-capture-${Date.now()}.jpg`; link.click()
+  }
+
+  return <div className="camera-studio"><div className="settings-heading"><p className="eyebrow">Local camera studio</p><h1>Camera</h1><p>Preview and capture with device-side filters. Nothing is uploaded.</p></div><div className="camera-studio-grid"><section className="camera-preview-card"><div className="camera-preview-frame"><video ref={videoRef} className="camera-preview" autoPlay muted playsInline style={{ filter: activeFilter.css, transform: facingMode === 'user' ? 'scaleX(-1)' : undefined }} /><div className="camera-preview-badge"><span />Device only</div>{error && <div className="camera-preview-error"><Camera size={21} /><strong>{error}</strong><span>Check your browser permission and try again.</span></div>}</div><div className="camera-toolbar"><button className="camera-tool" onClick={() => setFacingMode(mode => mode === 'user' ? 'environment' : 'user')}><FlipHorizontal2 size={17} /><span>Flip</span></button><button className="camera-capture" onClick={capture} aria-label="Capture photo"><Camera size={22} /></button><button className="camera-tool" onClick={() => { setFilterId('natural'); setCaptured(''); setError('') }}><RotateCcw size={17} /><span>Reset</span></button></div></section><aside className="camera-controls-card"><div className="camera-card-heading"><div><h3>Filters</h3><p>Live device-side preview</p></div><Sparkles size={19} /></div><div className="camera-filter-grid">{cameraFilters.map(filter => <button key={filter.id} className={filter.id === activeFilter.id ? 'active' : ''} onClick={() => setFilterId(filter.id)}><span className="camera-filter-swatch" style={{ filter: filter.css }} /><strong>{filter.label}</strong></button>)}</div>{captured && <div className="camera-capture-result"><img src={captured} alt="Captured Contak preview" /><button className="primary-btn" onClick={downloadCapture}><Download size={16} />Download capture</button></div>}<p className="camera-privacy-note"><ShieldCheck size={15} /> Camera processing stays on this device.</p></aside></div><canvas ref={canvasRef} className="camera-canvas" /></div>
+}
+
 function SettingsView({ user, token, onLogout }: { user: User; token: string; onLogout: () => void }) {
   const [ringtonePlaying, setRingtonePlaying] = useState(false)
   const [currentPassword, setCurrentPassword] = useState('')
@@ -266,7 +323,7 @@ function App() {
   const finishCall = () => { if (call) socketRef.current?.emit('call:end', { toUserId: call.peerId, callId: call.callId }); clearCallMedia(); callRef.current = null; setCall(null) }
   const acceptCall = () => { if (!call) return; socketRef.current?.emit('call:accept', { toUserId: call.peerId, callId: call.callId }); callRef.current = { ...call, state: 'connected' }; setCall({ ...call, state: 'connected' }) }
   const logout = () => { localStorage.removeItem('contak-session'); setSession(null); setActiveNav('contacts'); setSelectedId(''); socketRef.current?.disconnect() }
-  return <div className="app-shell"><Sidebar activeNav={activeNav} setActiveNav={setActiveNav} onOpenSettings={() => setActiveNav('settings')} user={session.user} /><div className="mobile-topbar"><div className="brand"><span className="brand-mark" /> <span>Contak<span className="brand-dot">.</span>App</span></div><button className="icon-btn"><Bell size={18} /></button></div>{activeNav === 'conversation' && selectedChat ? <div className="conversation-workspace"><Conversation chat={selectedChat} messages={messages[selectedChat.id] || []} setMessages={setMessages} onSend={sendMessage} onTyping={sendTypingState} typing={Boolean(typingByChatId[selectedChat.id])} onCall={startCall} onBack={() => setActiveNav('contacts')} /><UtilityRail chat={selectedChat} onCall={startCall} /></div> : activeNav === 'contacts' ? <div className="content-view"><ContactsView contacts={contacts} searchResults={searchResults} requests={contactRequests} onSearch={searchContacts} onAdd={addContact} onAccept={acceptContact} onOpen={openContact} onCall={callContact} /></div> : activeNav === 'settings' ? <div className="content-view"><SettingsView user={session.user} token={session.token} onLogout={logout} /></div> : <div className="content-view"><PlaceholderView activeNav={activeNav} /></div>}<div className="mobile-nav">{navItems.map(({ id, label, icon: Icon }) => <button key={id} className={activeNav === id ? 'active' : ''} onClick={() => setActiveNav(id)}><Icon size={19} /><span>{label}</span></button>)}</div>{call && selectedChat && <CallOverlay chat={selectedChat} kind={call.kind} state={call.state} onAccept={acceptCall} onDecline={finishCall} onCancel={finishCall} mediaRef={remoteMediaRef} localMediaRef={localMediaRef} audioRef={remoteAudioRef} error={callError} />}</div>
+  return <div className="app-shell"><Sidebar activeNav={activeNav} setActiveNav={setActiveNav} onOpenSettings={() => setActiveNav('settings')} user={session.user} /><div className="mobile-topbar"><div className="brand"><span className="brand-mark" /> <span>Contak<span className="brand-dot">.</span>App</span></div><button className="icon-btn"><Bell size={18} /></button></div>{activeNav === 'conversation' && selectedChat ? <div className="conversation-workspace"><Conversation chat={selectedChat} messages={messages[selectedChat.id] || []} setMessages={setMessages} onSend={sendMessage} onTyping={sendTypingState} typing={Boolean(typingByChatId[selectedChat.id])} onCall={startCall} onBack={() => setActiveNav('contacts')} /><UtilityRail chat={selectedChat} onCall={startCall} /></div> : activeNav === 'contacts' ? <div className="content-view"><ContactsView contacts={contacts} searchResults={searchResults} requests={contactRequests} onSearch={searchContacts} onAdd={addContact} onAccept={acceptContact} onOpen={openContact} onCall={callContact} /></div> : activeNav === 'settings' ? <div className="content-view"><SettingsView user={session.user} token={session.token} onLogout={logout} /></div> : activeNav === 'camera' ? <div className="content-view"><CameraStudio /></div> : <div className="content-view"><PlaceholderView activeNav={activeNav} /></div>}<div className="mobile-nav">{navItems.map(({ id, label, icon: Icon }) => <button key={id} className={activeNav === id ? 'active' : ''} onClick={() => setActiveNav(id)}><Icon size={19} /><span>{label}</span></button>)}</div>{call && selectedChat && <CallOverlay chat={selectedChat} kind={call.kind} state={call.state} onAccept={acceptCall} onDecline={finishCall} onCancel={finishCall} mediaRef={remoteMediaRef} localMediaRef={localMediaRef} audioRef={remoteAudioRef} error={callError} />}</div>
 }
 
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>)
