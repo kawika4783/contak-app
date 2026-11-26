@@ -78,6 +78,7 @@ class AdminGuard implements CanActivate {
 
 class RegisterDto { @IsString() @MinLength(3) username!: string; @IsString() @MinLength(2) displayName!: string; @IsEmail() email!: string; @IsString() @MinLength(8) password!: string }
 class LoginDto { @IsString() username!: string; @IsString() password!: string }
+class ChangePasswordDto { @IsString() currentPassword!: string; @IsString() @MinLength(8) newPassword!: string }
 class MessageDto { @IsString() @MinLength(1) body!: string }
 class ContactRequestDto { @IsString() username!: string }
 
@@ -105,6 +106,16 @@ class AuthController {
     if (!user || !(await bcrypt.compare(body.password, user.password_hash))) throw new UnauthorizedException('Invalid username or password')
     const { password_hash: _, ...safeUser } = user
     return { user: safeUser, token: issueToken(user.id) }
+  }
+  @UseGuards(AuthGuard)
+  @Post('password') async changePassword(@Req() req: AuthRequest, @Body() body: ChangePasswordDto) {
+    const result = await this.db.query('SELECT password_hash FROM users WHERE id = $1', [req.userId!])
+    const user = result.rows[0]
+    if (!user || !(await bcrypt.compare(body.currentPassword, user.password_hash))) throw new UnauthorizedException('Current password is incorrect')
+    if (body.currentPassword === body.newPassword) throw new BadRequestException('New password must be different')
+    const passwordHash = await bcrypt.hash(body.newPassword, 12)
+    await this.db.query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, req.userId!])
+    return { ok: true }
   }
   @UseGuards(AuthGuard)
   @Get('me') async me(@Req() req: AuthRequest) { const userId = req.userId!; const result = await this.db.query('SELECT id, username, display_name, email, role, created_at FROM users WHERE id = $1', [userId]); return result.rows[0] }
