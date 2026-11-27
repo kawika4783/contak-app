@@ -420,7 +420,7 @@
 
 /* Center mobile grid cards instead of leaving a single card in the first track. */
 @media (max-width: 760px) {
-  .contacts-grid-card { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: center; gap: 10px; }
+  .contacts-grid-card { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-start; gap: 10px; }
   .contacts-grid-card > .contacts-card-heading,
   .contacts-grid-card > .contacts-empty { flex: 0 0 100%; }
   .contacts-grid-card > .contact-row { flex: 0 0 160px; width: 160px; }
