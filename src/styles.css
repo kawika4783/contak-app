@@ -399,3 +399,21 @@
 /* Keep uploaded contact photos inside their avatar frame in every layout. */
 .contact-avatar { position: relative; flex: 0 0 auto; overflow: hidden; }
 .contact-avatar img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: cover; border-radius: inherit; }
+
+/* List view sizing: give the contact identity and actions more room without changing grid view. */
+.contacts-card:not(.contacts-grid-card) .contact-row { gap: 13px; padding: 15px 0; }
+.contacts-card:not(.contacts-grid-card) .contact-avatar { width: 52px; height: 52px; border-radius: 16px; font-size: 14px; }
+.contacts-card:not(.contacts-grid-card) .contact-copy { gap: 5px; }
+.contacts-card:not(.contacts-grid-card) .contact-copy strong { font-size: 14px; }
+.contacts-card:not(.contacts-grid-card) .contact-copy span { font-size: 11px; }
+.contacts-card:not(.contacts-grid-card) .contact-actions { gap: 8px; }
+.contacts-card:not(.contacts-grid-card) .contact-open { padding: 10px 13px; font-size: 11px; }
+.contacts-card:not(.contacts-grid-card) .contact-call { width: 40px; height: 40px; padding: 0; }
+
+@media (max-width: 760px) {
+  .contacts-card:not(.contacts-grid-card) .contact-row { flex-wrap: nowrap; align-items: center; gap: 12px; padding: 16px 0; }
+  .contacts-card:not(.contacts-grid-card) .contact-copy { flex: 1 1 auto; min-width: 0; }
+  .contacts-card:not(.contacts-grid-card) .contact-actions { width: auto; margin-left: 0; flex: 0 0 auto; flex-wrap: nowrap; gap: 7px; }
+  .contacts-card:not(.contacts-grid-card) .contact-open,
+  .contacts-card:not(.contacts-grid-card) .contact-call { flex: 0 0 46px; width: 46px; height: 46px; padding: 0; justify-content: center; }
+}
