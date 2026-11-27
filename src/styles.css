@@ -390,7 +390,8 @@
 .contacts-grid-card .contact-added { font-size: 9px; }
 
 @media (max-width: 760px) {
-  .contacts-grid-card { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 12px; }
+  .contacts-grid-card { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); justify-items: center; gap: 10px; padding: 12px; }
+  .contacts-grid-card > .contacts-card-heading, .contacts-grid-card > .contacts-empty { justify-self: stretch; }
   .contacts-grid-card .contact-row { width: 160px; max-width: 100%; }
   .contacts-grid-card .contact-avatar { width: 100%; max-width: 148px; height: 132px; }
 }
