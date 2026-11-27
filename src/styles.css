@@ -158,3 +158,10 @@
 .call-media-controls button.disabled { color: #ffb2c0; border-color: rgba(251,113,133,.36); background: rgba(163,61,100,.2); }
 .video-call-card .call-media-controls { position: absolute; z-index: 4; right: 24px; bottom: 76px; left: 24px; margin: 0; }
 @media (max-width: 760px) { .call-media-controls button { padding: 9px 11px; } }
+
+/* Desktop video calls stay contained like a focused glass panel; mobile remains immersive. */
+@media (min-width: 761px) {
+  .video-call-overlay { padding: 32px; background: rgba(3, 5, 15, .76); }
+  .video-call-card { width: min(880px, calc(100vw - 96px)); height: min(760px, calc(100vh - 64px)); min-height: 540px; border: 2px solid rgba(169, 76, 255, .78); border-radius: 48px; background: #070914; box-shadow: 0 30px 110px rgba(0, 0, 0, .72), 0 0 34px rgba(169, 76, 255, .18); }
+  .video-call-card .call-video-stage { border-radius: 46px; }
+}
