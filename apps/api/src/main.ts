@@ -211,8 +211,9 @@ class ProfileController {
     const result = await this.db.query('UPDATE users SET profile_image_path = $2, profile_updated_at = now() WHERE id = $1 RETURNING id, username, display_name, email, role, phone, hometown, about_me, profile_image_path, profile_visibility, search_by_email, search_by_phone, search_by_name, profile_updated_at', [req.userId!, storedPath])
     return safeProfile(result.rows[0])
   }
-  @Get('public/:username') async publicProfile(@Param('username') username: string) {
-    const result = await this.db.query('SELECT id, username, display_name, email, phone, hometown, about_me, profile_image_path, profile_visibility, search_by_email, search_by_phone FROM users WHERE username = $1 AND profile_visibility = \'public\'', [username.trim().toLowerCase()])
+  @Get('public/:username') async publicProfile(@Req() req: AuthRequest, @Param('username') username: string) {
+    const viewerId = userFromToken(req.headers.authorization?.replace(/^Bearer\s+/i, ''))
+    const result = await this.db.query('SELECT id, username, display_name, email, phone, hometown, about_me, profile_image_path, profile_visibility, search_by_email, search_by_phone FROM users WHERE username = $1 AND (profile_visibility = \'public\' OR id = $2)', [username.trim().toLowerCase(), viewerId])
     const profile = result.rows[0]
     if (!profile) throw new NotFoundException('This profile is private or unavailable')
     return { id: profile.id, username: profile.username, display_name: profile.display_name, profile_image_url: profileImageUrl(profile.profile_image_path), hometown: profile.hometown || null, about_me: profile.about_me || null, email: profile.search_by_email ? profile.email : null, phone: profile.search_by_phone ? profile.phone : null }
