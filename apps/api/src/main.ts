@@ -10,6 +10,7 @@ import { Pool } from 'pg'
 import Redis from 'ioredis'
 import bcrypt from 'bcryptjs'
 import jwt, { JwtPayload } from 'jsonwebtoken'
+import webpush from 'web-push'
 import type { Request } from 'express'
 import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator'
 
@@ -55,6 +56,31 @@ class PresenceService {
   private readonly redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', { lazyConnect: true, maxRetriesPerRequest: 1 })
   async touch(userId: string) { try { if (this.redis.status === 'wait') await this.redis.connect(); await this.redis.set(`presence:${userId}`, 'online', 'EX', 65) } catch { /* presence is ephemeral and must never block messaging */ } }
   async offline(userId: string) { try { await this.redis.del(`presence:${userId}`) } catch { /* best effort */ } }
+}
+
+type NotificationMode = 'on' | 'silent' | 'off'
+
+@Injectable()
+class PushService {
+  readonly publicKey = process.env.VAPID_PUBLIC_KEY || ''
+  private readonly enabled = Boolean(this.publicKey && process.env.VAPID_PRIVATE_KEY && process.env.VAPID_SUBJECT)
+  constructor(private readonly db: DbService) {
+    if (this.enabled) webpush.setVapidDetails(process.env.VAPID_SUBJECT!, this.publicKey, process.env.VAPID_PRIVATE_KEY!)
+  }
+  async notifyMessage(conversationId: string, message: { id: string; sender_id: string; display_name: string; body: string; attachment?: { name?: string } | null }) {
+    if (!this.enabled) return
+    try {
+      const recipients = await this.db.query(`SELECT ps.endpoint, ps.subscription, COALESCE(np.mode, 'on') AS mode FROM conversation_participants cp JOIN push_subscriptions ps ON ps.user_id = cp.user_id LEFT JOIN notification_preferences np ON np.user_id = cp.user_id WHERE cp.conversation_id = $1 AND cp.user_id <> $2`, [conversationId, message.sender_id])
+      const body = message.attachment?.name ? `Sent an attachment: ${message.attachment.name}` : message.body
+      await Promise.all(recipients.rows.filter(row => row.mode !== 'off').map(async row => {
+        try {
+          await webpush.sendNotification(row.subscription, JSON.stringify({ title: message.display_name, body, silent: row.mode === 'silent', tag: `contak-message-${conversationId}`, url: '/' }), { TTL: 60 })
+        } catch (error: any) {
+          if (error?.statusCode === 404 || error?.statusCode === 410) await this.db.query('DELETE FROM push_subscriptions WHERE endpoint = $1', [row.endpoint])
+        }
+      }))
+    } catch { /* push delivery must never block message delivery */ }
+  }
 }
 
 function issueToken(userId: string) { return jwt.sign({ sub: userId }, JWT_SECRET, { expiresIn: TOKEN_TTL }) }
@@ -186,7 +212,7 @@ class CallsController {
 @Controller('api/conversations')
 @UseGuards(AuthGuard)
 class ConversationsController {
-  constructor(private readonly db: DbService, private readonly realtime: RealtimeGateway) {}
+  constructor(private readonly db: DbService, private readonly realtime: RealtimeGateway, private readonly push: PushService) {}
   private async assertParticipant(conversationId: string, userId: string) { const result = await this.db.query('SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2', [conversationId, userId]); if (!result.rowCount) throw new UnauthorizedException('Conversation access denied') }
   @Get() async list(@Req() req: AuthRequest) {
     const result = await this.db.query(`
@@ -249,7 +275,7 @@ class ConversationsController {
   }
   private readonly messageFields = `m.id, m.conversation_id, m.body, m.created_at, m.sender_id, m.message_type, m.attachment_path, m.attachment_name, m.attachment_mime, m.attachment_size, u.username, u.display_name`
   @Get(':id/messages') async messages(@Req() req: AuthRequest, @Param('id') id: string, @Query('limit') limit = '50') { await this.assertParticipant(id, req.userId!); await this.markRead(id, req.userId!); const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100); const result = await this.db.query(`SELECT ${this.messageFields}, EXISTS(SELECT 1 FROM message_receipts mr WHERE mr.message_id = m.id AND mr.user_id <> m.sender_id AND mr.read_at IS NOT NULL) AS read FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.conversation_id = $1 ORDER BY m.created_at DESC, m.id DESC LIMIT $2`, [id, safeLimit]); return result.rows.reverse().map(row => this.toMessage(row)) }
-  @Post(':id/messages') async send(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: MessageDto) { await this.assertParticipant(id, req.userId!); const created = await this.db.query('INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id, body, created_at, sender_id', [id, req.userId!, body.body.trim()]); await this.db.query('INSERT INTO message_receipts (message_id, user_id, delivered_at) SELECT $1, cp.user_id, now() FROM conversation_participants cp WHERE cp.conversation_id = $2 AND cp.user_id <> $3 ON CONFLICT DO NOTHING', [created.rows[0].id, id, req.userId!]); const result = await this.db.query(`SELECT ${this.messageFields}, false AS read FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = $1`, [created.rows[0].id]); const message = this.toMessage(result.rows[0]); this.realtime.broadcastMessage(id, message); return message }
+  @Post(':id/messages') async send(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: MessageDto) { await this.assertParticipant(id, req.userId!); const created = await this.db.query('INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id, body, created_at, sender_id', [id, req.userId!, body.body.trim()]); await this.db.query('INSERT INTO message_receipts (message_id, user_id, delivered_at) SELECT $1, cp.user_id, now() FROM conversation_participants cp WHERE cp.conversation_id = $2 AND cp.user_id <> $3 ON CONFLICT DO NOTHING', [created.rows[0].id, id, req.userId!]); const result = await this.db.query(`SELECT ${this.messageFields}, false AS read FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = $1`, [created.rows[0].id]); const message = this.toMessage(result.rows[0]); this.realtime.broadcastMessage(id, message); void this.push.notifyMessage(id, message); return message }
   @UseInterceptors(FileInterceptor('file', { dest: UPLOAD_DIR, limits: { fileSize: MAX_UPLOAD_BYTES } }))
   @Post(':id/attachments') async upload(@Req() req: AuthRequest, @Param('id') id: string, @UploadedFile() file?: UploadedChatFile) {
     await this.assertParticipant(id, req.userId!)
@@ -263,7 +289,7 @@ class ConversationsController {
     const created = await this.db.query('INSERT INTO messages (conversation_id, sender_id, body, message_type, attachment_path, attachment_name, attachment_mime, attachment_size) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id', [id, req.userId!, fileName, messageType, file.path, fileName, file.mimetype, file.size])
     await this.db.query('INSERT INTO message_receipts (message_id, user_id, delivered_at) SELECT $1, cp.user_id, now() FROM conversation_participants cp WHERE cp.conversation_id = $2 AND cp.user_id <> $3 ON CONFLICT DO NOTHING', [created.rows[0].id, id, req.userId!])
     const result = await this.db.query(`SELECT ${this.messageFields}, false AS read FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = $1`, [created.rows[0].id])
-    const message = this.toMessage(result.rows[0]); this.realtime.broadcastMessage(id, message); return message
+    const message = this.toMessage(result.rows[0]); this.realtime.broadcastMessage(id, message); void this.push.notifyMessage(id, message); return message
   }
   @Get(':id/attachments/:messageId') async attachment(@Req() req: AuthRequest, @Param('id') id: string, @Param('messageId') messageId: string) {
     await this.assertParticipant(id, req.userId!)
@@ -273,6 +299,25 @@ class ConversationsController {
     const safeName = basename(file.attachment_name || 'attachment').replace(/["\r\n]/g, '_')
     return new StreamableFile(createReadStream(file.attachment_path), { type: file.attachment_mime, disposition: `inline; filename="${safeName}"` })
   }
+}
+
+@Controller('api/notifications')
+@UseGuards(AuthGuard)
+class NotificationsController {
+  constructor(private readonly db: DbService, private readonly push: PushService) {}
+  @Get('config') config() { return { publicKey: this.push.publicKey } }
+  @Get('preferences') async preferences(@Req() req: AuthRequest) { const result = await this.db.query('SELECT mode FROM notification_preferences WHERE user_id = $1', [req.userId!]); return { mode: (result.rows[0]?.mode || 'off') as NotificationMode } }
+  @Post('preferences') async updatePreferences(@Req() req: AuthRequest, @Body() body: { mode?: NotificationMode }) {
+    if (!body.mode || !['on', 'silent', 'off'].includes(body.mode)) throw new BadRequestException('Notification mode must be on, silent, or off')
+    await this.db.query('INSERT INTO notification_preferences (user_id, mode) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET mode = EXCLUDED.mode, updated_at = now()', [req.userId!, body.mode])
+    return { mode: body.mode }
+  }
+  @Post('subscribe') async subscribe(@Req() req: AuthRequest, @Body() body: { endpoint?: string; keys?: { p256dh?: string; auth?: string } }) {
+    if (!body.endpoint || !body.keys?.p256dh || !body.keys.auth) throw new BadRequestException('Invalid push subscription')
+    await this.db.query('INSERT INTO push_subscriptions (endpoint, user_id, subscription, updated_at) VALUES ($1, $2, $3::jsonb, now()) ON CONFLICT (endpoint) DO UPDATE SET user_id = EXCLUDED.user_id, subscription = EXCLUDED.subscription, updated_at = now()', [body.endpoint, req.userId!, JSON.stringify(body)])
+    return { ok: true }
+  }
+  @Post('unsubscribe') async unsubscribe(@Req() req: AuthRequest, @Body() body: { endpoint?: string }) { if (body.endpoint) await this.db.query('DELETE FROM push_subscriptions WHERE endpoint = $1 AND user_id = $2', [body.endpoint, req.userId!]); return { ok: true } }
 }
 
 @Controller('api/admin')
@@ -334,7 +379,7 @@ class AdminController {
   }
 }
 
-@Module({ controllers: [HealthController, AuthController, ContactsController, CallsController, ConversationsController, AdminController], providers: [DbService, PresenceService, AuthGuard, AdminGuard, RealtimeGateway] })
+@Module({ controllers: [HealthController, AuthController, ContactsController, CallsController, ConversationsController, NotificationsController, AdminController], providers: [DbService, PresenceService, PushService, AuthGuard, AdminGuard, RealtimeGateway] })
 class AppModule {}
 
 async function bootstrap() { const app = await NestFactory.create(AppModule); app.enableCors({ origin: true, credentials: true }); app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true })); await app.listen(Number(process.env.PORT || 3000), '0.0.0.0') }

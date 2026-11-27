@@ -78,6 +78,21 @@ CREATE TABLE IF NOT EXISTS message_receipts (
   PRIMARY KEY (message_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS notification_preferences (
+  user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  mode varchar(16) NOT NULL DEFAULT 'on' CHECK (mode IN ('on', 'silent', 'off')),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint text PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  subscription jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx ON push_subscriptions (user_id);
+
 CREATE TABLE IF NOT EXISTS reports (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   reporter_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,

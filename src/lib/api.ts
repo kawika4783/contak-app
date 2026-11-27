@@ -3,6 +3,7 @@ export type Contact = { id: string; username: string; display_name: string; favo
 export type ApiAttachment = { url: string; name: string; mime: string; size: number }
 export type ApiMessage = { id: string; body: string; created_at: string; sender_id: string; username: string; display_name: string; read?: boolean; attachment?: ApiAttachment | null }
 export type ApiConversation = { id: string; created_at: string; participant: Contact; last_message: ApiMessage | null; unread_count: number }
+export type NotificationMode = 'on' | 'silent' | 'off'
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
 
@@ -15,6 +16,37 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, tok
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(payload.message || `Request failed (${response.status})`)
   return payload as T
+}
+
+function decodeVapidKey(value: string) {
+  const padding = '='.repeat((4 - (value.length % 4)) % 4)
+  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = window.atob(base64)
+  return Uint8Array.from([...raw].map(character => character.charCodeAt(0)))
+}
+
+export async function syncPushSubscription(token: string, mode: NotificationMode) {
+  if (mode === 'off') {
+    const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.ready : null
+    const subscription = await registration?.pushManager.getSubscription()
+    if (subscription) {
+      await apiRequest('/notifications/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint: subscription.endpoint }) }, token)
+      await subscription.unsubscribe()
+    }
+    await apiRequest('/notifications/preferences', { method: 'POST', body: JSON.stringify({ mode }) }, token)
+    return { permission: 'default' }
+  }
+  if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('Browser notifications are not supported on this device')
+  const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission()
+  if (permission !== 'granted') throw new Error(permission === 'denied' ? 'Notifications are blocked in this browser' : 'Notification permission was not granted')
+  const config = await apiRequest<{ publicKey: string }>('/notifications/config', {}, token)
+  if (!config.publicKey) throw new Error('Push notifications are not configured on the server yet')
+  const registration = await navigator.serviceWorker.ready
+  let subscription = await registration.pushManager.getSubscription()
+  if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(config.publicKey) })
+  await apiRequest('/notifications/subscribe', { method: 'POST', body: JSON.stringify(subscription.toJSON()) }, token)
+  await apiRequest('/notifications/preferences', { method: 'POST', body: JSON.stringify({ mode }) }, token)
+  return { permission }
 }
 
 export function uploadFile<T>(path: string, file: File, token: string, onProgress: (percent: number) => void): Promise<T> {
