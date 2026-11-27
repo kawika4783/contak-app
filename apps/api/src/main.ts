@@ -16,9 +16,9 @@ import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator'
 const JWT_SECRET = process.env.JWT_SECRET || 'development-only-secret'
 const TOKEN_TTL = '7d'
 const UPLOAD_DIR = join(process.cwd(), 'uploads')
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 const ALLOWED_UPLOAD_TYPES = new Set([
-  'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+  'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif',
   'video/mp4', 'video/webm', 'video/quicktime',
   'application/pdf', 'text/plain', 'text/csv', 'application/json',
   'application/zip', 'application/x-zip-compressed',

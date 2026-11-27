@@ -13,7 +13,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, tok
     headers: { ...(isFormData ? {} : jsonHeaders), ...(options.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   })
   const payload = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(payload.message || 'Something went wrong')
+  if (!response.ok) throw new Error(payload.message || `Request failed (${response.status})`)
   return payload as T
 }
 
