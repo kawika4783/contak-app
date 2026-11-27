@@ -58,6 +58,8 @@ services:
       TURN_USERNAME: ${TURN_USERNAME:?Set TURN_USERNAME in .env}
       TURN_PASSWORD: ${TURN_PASSWORD:?Set TURN_PASSWORD in .env}
       PORT: 3000
+    volumes:
+      - contak_uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -93,3 +95,4 @@ services:
 volumes:
   contak_postgres:
   contak_redis:
+  contak_uploads:

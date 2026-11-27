@@ -1,8 +1,9 @@
 import 'reflect-metadata'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { createReadStream, existsSync, mkdirSync, readFileSync, unlinkSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { NestFactory } from '@nestjs/core'
-import { Body, CanActivate, Controller, ExecutionContext, Get, Injectable, Module, Param, Post, Query, Req, UnauthorizedException, BadRequestException, ForbiddenException, UseGuards, ValidationPipe } from '@nestjs/common'
+import { Body, CanActivate, Controller, ExecutionContext, Get, Injectable, Module, Param, Post, Query, Req, UnauthorizedException, BadRequestException, ForbiddenException, StreamableFile, UploadedFile, UseGuards, UseInterceptors, ValidationPipe } from '@nestjs/common'
+import { FileInterceptor } from '@nestjs/platform-express'
 import { WebSocketGateway, WebSocketServer, SubscribeMessage, ConnectedSocket, MessageBody, OnGatewayConnection, OnGatewayDisconnect, WsException } from '@nestjs/websockets'
 import { Server, Socket } from 'socket.io'
 import { Pool } from 'pg'
@@ -14,6 +15,17 @@ import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'development-only-secret'
 const TOKEN_TTL = '7d'
+const UPLOAD_DIR = join(process.cwd(), 'uploads')
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+const ALLOWED_UPLOAD_TYPES = new Set([
+  'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+  'video/mp4', 'video/webm', 'video/quicktime',
+  'application/pdf', 'text/plain', 'text/csv', 'application/json',
+  'application/zip', 'application/x-zip-compressed',
+  'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+])
+mkdirSync(UPLOAD_DIR, { recursive: true })
 type AuthRequest = Request & { userId?: string }
 
 @Injectable()
@@ -81,6 +93,8 @@ class LoginDto { @IsString() username!: string; @IsString() password!: string }
 class ChangePasswordDto { @IsString() currentPassword!: string; @IsString() @MinLength(8) newPassword!: string }
 class MessageDto { @IsString() @MinLength(1) body!: string }
 class ContactRequestDto { @IsString() username!: string }
+
+type UploadedChatFile = { originalname: string; mimetype: string; size: number; path: string }
 
 @Controller('api/health')
 class HealthController {
@@ -220,8 +234,45 @@ class ConversationsController {
     if (result.rowCount) this.realtime.broadcastRead(conversationId, userId)
   }
   @Post(':id/read') async read(@Req() req: AuthRequest, @Param('id') id: string) { await this.assertParticipant(id, req.userId!); await this.markRead(id, req.userId!); return { ok: true } }
-  @Get(':id/messages') async messages(@Req() req: AuthRequest, @Param('id') id: string, @Query('limit') limit = '50') { await this.assertParticipant(id, req.userId!); await this.markRead(id, req.userId!); const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100); const result = await this.db.query('SELECT m.id, m.conversation_id, m.body, m.created_at, m.sender_id, u.username, u.display_name, EXISTS(SELECT 1 FROM message_receipts mr WHERE mr.message_id = m.id AND mr.user_id <> m.sender_id AND mr.read_at IS NOT NULL) AS read FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.conversation_id = $1 ORDER BY m.created_at DESC, m.id DESC LIMIT $2', [id, safeLimit]); return result.rows.reverse() }
-  @Post(':id/messages') async send(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: MessageDto) { await this.assertParticipant(id, req.userId!); const created = await this.db.query('INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id, body, created_at, sender_id', [id, req.userId!, body.body.trim()]); await this.db.query('INSERT INTO message_receipts (message_id, user_id, delivered_at) SELECT $1, cp.user_id, now() FROM conversation_participants cp WHERE cp.conversation_id = $2 AND cp.user_id <> $3 ON CONFLICT DO NOTHING', [created.rows[0].id, id, req.userId!]); const result = await this.db.query('SELECT m.id, m.conversation_id, m.body, m.created_at, m.sender_id, u.username, u.display_name, false AS read FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = $1', [created.rows[0].id]); const message = result.rows[0]; this.realtime.broadcastMessage(id, message); return message }
+  private toMessage(row: any) {
+    return {
+      id: row.id,
+      conversation_id: row.conversation_id,
+      body: row.body,
+      created_at: row.created_at,
+      sender_id: row.sender_id,
+      username: row.username,
+      display_name: row.display_name,
+      read: row.read,
+      attachment: row.attachment_path ? { url: `/api/conversations/${row.conversation_id}/attachments/${row.id}`, name: row.attachment_name, mime: row.attachment_mime, size: row.attachment_size } : null,
+    }
+  }
+  private readonly messageFields = `m.id, m.conversation_id, m.body, m.created_at, m.sender_id, m.message_type, m.attachment_path, m.attachment_name, m.attachment_mime, m.attachment_size, u.username, u.display_name`
+  @Get(':id/messages') async messages(@Req() req: AuthRequest, @Param('id') id: string, @Query('limit') limit = '50') { await this.assertParticipant(id, req.userId!); await this.markRead(id, req.userId!); const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100); const result = await this.db.query(`SELECT ${this.messageFields}, EXISTS(SELECT 1 FROM message_receipts mr WHERE mr.message_id = m.id AND mr.user_id <> m.sender_id AND mr.read_at IS NOT NULL) AS read FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.conversation_id = $1 ORDER BY m.created_at DESC, m.id DESC LIMIT $2`, [id, safeLimit]); return result.rows.reverse().map(row => this.toMessage(row)) }
+  @Post(':id/messages') async send(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: MessageDto) { await this.assertParticipant(id, req.userId!); const created = await this.db.query('INSERT INTO messages (conversation_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id, body, created_at, sender_id', [id, req.userId!, body.body.trim()]); await this.db.query('INSERT INTO message_receipts (message_id, user_id, delivered_at) SELECT $1, cp.user_id, now() FROM conversation_participants cp WHERE cp.conversation_id = $2 AND cp.user_id <> $3 ON CONFLICT DO NOTHING', [created.rows[0].id, id, req.userId!]); const result = await this.db.query(`SELECT ${this.messageFields}, false AS read FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = $1`, [created.rows[0].id]); const message = this.toMessage(result.rows[0]); this.realtime.broadcastMessage(id, message); return message }
+  @UseInterceptors(FileInterceptor('file', { dest: UPLOAD_DIR, limits: { fileSize: MAX_UPLOAD_BYTES } }))
+  @Post(':id/attachments') async upload(@Req() req: AuthRequest, @Param('id') id: string, @UploadedFile() file?: UploadedChatFile) {
+    await this.assertParticipant(id, req.userId!)
+    if (!file) throw new BadRequestException('Choose a file to send')
+    if (!ALLOWED_UPLOAD_TYPES.has(file.mimetype)) {
+      if (existsSync(file.path)) unlinkSync(file.path)
+      throw new BadRequestException('This file type is not supported')
+    }
+    const fileName = basename(file.originalname).slice(0, 255) || 'Attachment'
+    const messageType = file.mimetype.startsWith('image/') ? 'image' : file.mimetype.startsWith('video/') ? 'video' : 'file'
+    const created = await this.db.query('INSERT INTO messages (conversation_id, sender_id, body, message_type, attachment_path, attachment_name, attachment_mime, attachment_size) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id', [id, req.userId!, fileName, messageType, file.path, fileName, file.mimetype, file.size])
+    await this.db.query('INSERT INTO message_receipts (message_id, user_id, delivered_at) SELECT $1, cp.user_id, now() FROM conversation_participants cp WHERE cp.conversation_id = $2 AND cp.user_id <> $3 ON CONFLICT DO NOTHING', [created.rows[0].id, id, req.userId!])
+    const result = await this.db.query(`SELECT ${this.messageFields}, false AS read FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = $1`, [created.rows[0].id])
+    const message = this.toMessage(result.rows[0]); this.realtime.broadcastMessage(id, message); return message
+  }
+  @Get(':id/attachments/:messageId') async attachment(@Req() req: AuthRequest, @Param('id') id: string, @Param('messageId') messageId: string) {
+    await this.assertParticipant(id, req.userId!)
+    const result = await this.db.query('SELECT attachment_path, attachment_name, attachment_mime FROM messages WHERE id = $1 AND conversation_id = $2 AND attachment_path IS NOT NULL', [messageId, id])
+    const file = result.rows[0]
+    if (!file || !existsSync(file.attachment_path)) throw new BadRequestException('Attachment is no longer available')
+    const safeName = basename(file.attachment_name || 'attachment').replace(/["\r\n]/g, '_')
+    return new StreamableFile(createReadStream(file.attachment_path), { type: file.attachment_mime, disposition: `inline; filename="${safeName}"` })
+  }
 }
 
 @Controller('api/admin')

@@ -56,8 +56,18 @@ CREATE TABLE IF NOT EXISTS messages (
   conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
   sender_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   body text NOT NULL CHECK (char_length(body) BETWEEN 1 AND 4000),
+  message_type varchar(16) NOT NULL DEFAULT 'text' CHECK (message_type IN ('text', 'image', 'video', 'file')),
+  attachment_path text,
+  attachment_name varchar(255),
+  attachment_mime varchar(120),
+  attachment_size integer,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS message_type varchar(16) NOT NULL DEFAULT 'text';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_path text;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_name varchar(255);
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_mime varchar(120);
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_size integer;
 CREATE INDEX IF NOT EXISTS messages_conversation_created_idx ON messages (conversation_id, created_at DESC, id DESC);
 
 CREATE TABLE IF NOT EXISTS message_receipts (
