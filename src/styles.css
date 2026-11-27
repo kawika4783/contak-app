@@ -137,6 +137,9 @@
 .contact-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 .public-profile-shell { display: grid; min-height: 100%; place-items: center; padding: 42px 24px; background: radial-gradient(circle at 50% 12%, rgba(89,57,184,.16), transparent 34%), var(--bg); }
 .public-profile-card { width: min(440px, 100%); padding: 22px 30px 26px; border: 1px solid rgba(154,112,255,.52); border-radius: 28px; background: linear-gradient(145deg, rgba(28,29,68,.96), rgba(10,14,31,.98)); box-shadow: 0 26px 80px rgba(0,0,0,.36), inset 0 0 25px rgba(102,75,205,.09); text-align: center; }
+.profile-card-overlay { position: fixed; z-index: 18; inset: 0; display: grid; place-items: center; padding: 24px 24px 30px; background: rgba(3,5,15,.58); backdrop-filter: blur(9px); pointer-events: none; }
+.profile-card-overlay .public-profile-shell { width: min(520px, 100%); min-height: 0; max-height: calc(100dvh - 54px); overflow: auto; padding: 24px; border: 1px solid rgba(154,112,255,.42); border-radius: 30px; box-shadow: 0 26px 80px rgba(0,0,0,.48); pointer-events: auto; }
+.profile-card-overlay .public-profile-card { width: min(440px, 100%); }
 .public-profile-card-top { display: flex; align-items: center; justify-content: space-between; min-height: 33px; }
 .public-profile-label { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; color: #b8a4ff; font-size: 10px; text-transform: uppercase; letter-spacing: .12em; }
 .public-profile-card > .profile-avatar { margin: 24px auto 16px; }
@@ -171,6 +174,8 @@
   .contacts-grid-card .contact-avatar { width: min(126px, 100%); height: auto; aspect-ratio: 1; }
   .public-profile-shell { padding: 22px 14px 95px; }
   .public-profile-card { padding-inline: 20px; }
+  .profile-card-overlay { align-items: end; padding: 0 0 76px; }
+  .profile-card-overlay .public-profile-shell { width: 100%; max-height: calc(100dvh - 92px); padding: 18px 14px 28px; border-radius: 25px 25px 0 0; }
 }
 
 /* Contact layout controls and immersive video calls. */
