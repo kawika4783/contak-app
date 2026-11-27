@@ -184,9 +184,9 @@ class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('typing:start') typingStart(@ConnectedSocket() socket: Socket, @MessageBody() conversationId: string) { socket.to(conversationId).emit('typing:update', { conversationId, userId: socket.data.userId, status: 'typing' }); return { ok: true } }
   @SubscribeMessage('typing:stop') typingStop(@ConnectedSocket() socket: Socket, @MessageBody() conversationId: string) { socket.to(conversationId).emit('typing:update', { conversationId, userId: socket.data.userId, status: 'idle' }); return { ok: true } }
   private emitToUser(userId: string, event: string, payload: unknown) { this.sockets.get(userId)?.forEach(socketId => this.server.to(socketId).emit(event, payload)) }
-  @SubscribeMessage('call:invite') async callInvite(@ConnectedSocket() socket: Socket, @MessageBody() body: { conversationId: string; toUserId: string; callId: string; kind: 'audio' | 'video'; fromName?: string; fromUsername?: string }) { const userId = socket.data.userId as string; const result = await this.db.query('SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND user_id IN ($2, $3)', [body.conversationId, userId, body.toUserId]); if (result.rowCount !== 2) throw new WsException('Call participant access denied'); this.emitToUser(body.toUserId, 'call:incoming', { conversationId: body.conversationId, callId: body.callId, kind: body.kind, fromUserId: userId, fromName: body.fromName, fromUsername: body.fromUsername }); return { ok: true } }
-  @SubscribeMessage('call:accept') callAccept(@ConnectedSocket() socket: Socket, @MessageBody() body: { toUserId: string; callId: string }) { this.emitToUser(body.toUserId, 'call:accepted', { callId: body.callId, fromUserId: socket.data.userId }); return { ok: true } }
-  @SubscribeMessage('call:end') callEnd(@ConnectedSocket() socket: Socket, @MessageBody() body: { toUserId: string; callId: string }) { this.emitToUser(body.toUserId, 'call:ended', { callId: body.callId, fromUserId: socket.data.userId }); return { ok: true } }
+  @SubscribeMessage('call:invite') async callInvite(@ConnectedSocket() socket: Socket, @MessageBody() body: { conversationId: string; toUserId: string; callId: string; kind: 'audio' | 'video'; fromName?: string; fromUsername?: string }) { const userId = socket.data.userId as string; const result = await this.db.query('SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND user_id IN ($2, $3)', [body.conversationId, userId, body.toUserId]); if (result.rowCount !== 2) throw new WsException('Call participant access denied'); await this.db.query('INSERT INTO call_history (id, caller_id, recipient_id, kind) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING', [body.callId, userId, body.toUserId, body.kind]); this.emitToUser(body.toUserId, 'call:incoming', { conversationId: body.conversationId, callId: body.callId, kind: body.kind, fromUserId: userId, fromName: body.fromName, fromUsername: body.fromUsername }); return { ok: true } }
+  @SubscribeMessage('call:accept') async callAccept(@ConnectedSocket() socket: Socket, @MessageBody() body: { toUserId: string; callId: string }) { await this.db.query("UPDATE call_history SET status = 'answered', answered_at = now() WHERE id = $1 AND (caller_id = $2 OR recipient_id = $2)", [body.callId, socket.data.userId]); this.emitToUser(body.toUserId, 'call:accepted', { callId: body.callId, fromUserId: socket.data.userId }); return { ok: true } }
+  @SubscribeMessage('call:end') async callEnd(@ConnectedSocket() socket: Socket, @MessageBody() body: { toUserId: string; callId: string }) { await this.db.query("UPDATE call_history SET status = CASE WHEN status = 'calling' THEN 'missed' ELSE 'ended' END, ended_at = now() WHERE id = $1 AND (caller_id = $2 OR recipient_id = $2)", [body.callId, socket.data.userId]); this.emitToUser(body.toUserId, 'call:ended', { callId: body.callId, fromUserId: socket.data.userId }); return { ok: true } }
   @SubscribeMessage('call:signal') callSignal(@ConnectedSocket() socket: Socket, @MessageBody() body: { toUserId: string; callId: string; signal: unknown }) { this.emitToUser(body.toUserId, 'call:signal', { callId: body.callId, fromUserId: socket.data.userId, signal: body.signal }); return { ok: true } }
   broadcastMessage(conversationId: string, message: unknown) { this.server.to(conversationId).emit('message:new', message) }
   broadcastRead(conversationId: string, userId: string) { this.server.to(conversationId).emit('receipt:read', { conversationId, userId }) }
@@ -195,6 +195,20 @@ class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
 @Controller('api/calls')
 @UseGuards(AuthGuard)
 class CallsController {
+  constructor(private readonly db: DbService) {}
+  @Get('history') async history(@Req() req: AuthRequest) {
+    const result = await this.db.query(`
+      SELECT ch.id, ch.kind, ch.status, ch.created_at, ch.answered_at, ch.ended_at,
+        CASE WHEN ch.caller_id = $1 THEN 'outgoing' ELSE 'incoming' END AS direction,
+        other.id AS user_id, other.username, other.display_name
+      FROM call_history ch
+      JOIN users other ON other.id = CASE WHEN ch.caller_id = $1 THEN ch.recipient_id ELSE ch.caller_id END
+      WHERE ch.caller_id = $1 OR ch.recipient_id = $1
+      ORDER BY ch.created_at DESC
+      LIMIT 50
+    `, [req.userId!])
+    return result.rows
+  }
   @Get('ice') iceServers() {
     const host = process.env.TURN_HOST || 'contak-app.srv1831469.hstgr.cloud'
     const port = process.env.TURN_PORT || '3479'

@@ -178,6 +178,27 @@
 .notification-status { margin: 12px 0 0; color: #8995b3; font-size: 10px; }
 .notification-error { margin-top: 10px; }
 
+.calls-view { height: 100%; overflow: auto; padding: 46px 52px; }
+.calls-card { max-width: 760px; margin-top: 30px; padding: 21px; border: 1px solid var(--line); border-radius: 18px; background: rgba(20,24,47,.67); }
+.calls-card-heading { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; color: #a993ff; }
+.calls-card-heading h3 { margin: 0 0 4px; color: #f3f5ff; font-size: 14px; }
+.calls-card-heading p { margin: 0; color: var(--muted); font-size: 10px; }
+.call-history-list { display: grid; }
+.call-history-row { display: flex; align-items: center; gap: 11px; min-width: 0; padding: 13px 0; border-top: 1px solid rgba(151,164,228,.12); }
+.call-history-icon { display: grid; place-items: center; flex: 0 0 auto; width: 35px; height: 35px; border-radius: 11px; color: #bcaaff; background: rgba(139,92,246,.17); }
+.call-history-icon.incoming { color: #8fe6c0; background: rgba(52,211,153,.12); }
+.call-history-row.missed .call-history-icon { color: #ffacbd; background: rgba(251,113,133,.12); }
+.call-history-copy { display: grid; gap: 4px; min-width: 0; flex: 1; }
+.call-history-copy strong { overflow: hidden; color: #f1f3ff; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.call-history-copy span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.call-history-row time { flex: 0 0 auto; color: #8692b1; font-size: 10px; }
+.call-history-message { display: grid; place-items: center; flex: 0 0 auto; width: 31px; height: 31px; border: 1px solid rgba(56,189,248,.3); border-radius: 9px; color: #bceaff; background: rgba(56,189,248,.08); }
+.call-history-message:hover { border-color: var(--cyan); }
+.calls-state { display: grid; justify-items: center; gap: 8px; padding: 58px 20px 42px; color: #8793b1; text-align: center; font-size: 11px; }
+.calls-state svg { color: #a993ff; }
+.calls-state strong { color: #d8ddf3; font-size: 12px; }
+.calls-error { color: #ffadbb; }
+
 .conversation-menu-wrap { position: relative; }
 .conversation-menu, .contact-details-popover { position: absolute; z-index: 12; top: calc(100% + 9px); right: 0; min-width: 195px; padding: 7px; border: 1px solid rgba(166,145,255,.34); border-radius: 13px; background: rgba(19,23,48,.97); box-shadow: 0 18px 45px rgba(0,0,0,.42); backdrop-filter: blur(18px); }
 .conversation-menu button { width: 100%; display: flex; align-items: center; gap: 9px; padding: 9px 10px; border-radius: 9px; color: #cbd3ed; background: transparent; text-align: left; font-size: 11px; }
@@ -222,6 +243,13 @@
 .attachment-file small { color: #9aa6c2; font-size: 9px; font-weight: 400; }
 .attachment-file > svg:last-child { color: #b8a4ff; }
 .composer button:disabled { opacity: .55; cursor: wait; }
+
+@media (max-width: 760px) {
+  .calls-view { padding: 27px 14px 104px; }
+  .calls-card { margin-top: 22px; padding: 15px; }
+  .call-history-row { gap: 9px; }
+  .call-history-row time { display: none; }
+}
 @media (max-width: 760px) {
   .conversation-menu { right: -4px; }
   .contact-details-popover { right: -4px; top: calc(100% + 62px); }

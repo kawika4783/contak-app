@@ -93,6 +93,20 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx ON push_subscriptions (user_id);
 
+CREATE TABLE IF NOT EXISTS call_history (
+  id uuid PRIMARY KEY,
+  caller_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recipient_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind varchar(8) NOT NULL CHECK (kind IN ('audio', 'video')),
+  status varchar(16) NOT NULL DEFAULT 'calling' CHECK (status IN ('calling', 'answered', 'ended', 'missed')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  answered_at timestamptz,
+  ended_at timestamptz,
+  CHECK (caller_id <> recipient_id)
+);
+CREATE INDEX IF NOT EXISTS call_history_caller_created_idx ON call_history (caller_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS call_history_recipient_created_idx ON call_history (recipient_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS reports (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   reporter_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
