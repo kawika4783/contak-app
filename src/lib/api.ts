@@ -7,6 +7,10 @@ export type NotificationMode = 'on' | 'silent' | 'off'
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
 
+function notifySessionExpired(message: unknown, hasToken: boolean) {
+  if (hasToken && message === 'A valid bearer token is required' && typeof window !== 'undefined') window.dispatchEvent(new Event('contak:session-expired'))
+}
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
   const response = await fetch(`/api${path}`, {
@@ -14,7 +18,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, tok
     headers: { ...(isFormData ? {} : jsonHeaders), ...(options.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   })
   const payload = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(payload.message || `Request failed (${response.status})`)
+  if (!response.ok) { notifySessionExpired(payload.message, Boolean(token)); throw new Error(payload.message || `Request failed (${response.status})`) }
   return payload as T
 }
 
@@ -62,7 +66,7 @@ export function uploadFile<T>(path: string, file: File, token: string, onProgres
     request.addEventListener('load', () => {
       let payload = {} as T & { message?: string }
       try { payload = JSON.parse(request.responseText || '{}') as T & { message?: string } } catch { /* proxy errors may return HTML */ }
-      if (request.status < 200 || request.status >= 300) { reject(new Error(payload.message || `Upload failed (${request.status})`)); return }
+      if (request.status < 200 || request.status >= 300) { notifySessionExpired(payload.message, true); reject(new Error(payload.message || `Upload failed (${request.status})`)); return }
       onProgress(100); resolve(payload)
     })
     request.addEventListener('error', () => reject(new Error('Upload failed. Check your connection and try again.')))
