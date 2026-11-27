@@ -1,8 +1,9 @@
 import 'reflect-metadata'
 import { createReadStream, existsSync, mkdirSync, readFileSync, unlinkSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { NestFactory } from '@nestjs/core'
-import { Body, CanActivate, Controller, ExecutionContext, Get, Injectable, Module, Param, Post, Query, Req, UnauthorizedException, BadRequestException, ForbiddenException, StreamableFile, UploadedFile, UseGuards, UseInterceptors, ValidationPipe } from '@nestjs/common'
+import { Body, CanActivate, Controller, ExecutionContext, Get, Injectable, Module, Param, Patch, Post, Query, Req, UnauthorizedException, BadRequestException, ForbiddenException, NotFoundException, StreamableFile, UploadedFile, UseGuards, UseInterceptors, ValidationPipe } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { WebSocketGateway, WebSocketServer, SubscribeMessage, ConnectedSocket, MessageBody, OnGatewayConnection, OnGatewayDisconnect, WsException } from '@nestjs/websockets'
 import { Server, Socket } from 'socket.io'
@@ -26,8 +27,20 @@ const ALLOWED_UPLOAD_TYPES = new Set([
   'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ])
+const PROFILE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+const PROFILE_IMAGE_MAX_BYTES = 8 * 1024 * 1024
 mkdirSync(UPLOAD_DIR, { recursive: true })
 type AuthRequest = Request & { userId?: string }
+function profileImageUrl(path?: string | null) { return path ? `/api/profile/avatar/${encodeURIComponent(basename(path))}` : null }
+function safeProfile(row: any) {
+  return {
+    id: row.id, username: row.username, display_name: row.display_name, email: row.email, role: row.role,
+    phone: row.phone || null, hometown: row.hometown || null, about_me: row.about_me || null,
+    profile_image_url: profileImageUrl(row.profile_image_path), profile_visibility: row.profile_visibility || 'private',
+    search_by_email: Boolean(row.search_by_email), search_by_phone: Boolean(row.search_by_phone), search_by_name: Boolean(row.search_by_name),
+    profile_updated_at: row.profile_updated_at || null,
+  }
+}
 
 @Injectable()
 class DbService {
@@ -119,6 +132,17 @@ class LoginDto { @IsString() username!: string; @IsString() password!: string }
 class ChangePasswordDto { @IsString() currentPassword!: string; @IsString() @MinLength(8) newPassword!: string }
 class MessageDto { @IsString() @MinLength(1) body!: string }
 class ContactRequestDto { @IsString() username!: string }
+class ProfileUpdateDto {
+  @IsOptional() @IsString() displayName?: string
+  @IsOptional() @IsEmail() email?: string
+  @IsOptional() @IsString() phone?: string
+  @IsOptional() @IsString() hometown?: string
+  @IsOptional() @IsString() aboutMe?: string
+  @IsOptional() @IsString() profileVisibility?: 'private' | 'public'
+  @IsOptional() searchByEmail?: boolean
+  @IsOptional() searchByPhone?: boolean
+  @IsOptional() searchByName?: boolean
+}
 
 type UploadedChatFile = { originalname: string; mimetype: string; size: number; path: string }
 
@@ -137,15 +161,14 @@ class AuthController {
     try {
       const result = await this.db.query('INSERT INTO users (username, display_name, email, password_hash) VALUES ($1, $2, $3, $4) RETURNING id, username, display_name, email, role, created_at', [username, body.displayName.trim(), body.email.trim().toLowerCase(), passwordHash])
       const user = result.rows[0]
-      return { user, token: issueToken(user.id) }
+      return { user: safeProfile(user), token: issueToken(user.id) }
     } catch (error: any) { if (error.code === '23505') throw new BadRequestException('Username or email is already registered'); throw error }
   }
   @Post('login') async login(@Body() body: LoginDto) {
-    const result = await this.db.query('SELECT id, username, display_name, email, password_hash, role, created_at FROM users WHERE username = $1', [body.username.trim().toLowerCase()])
+    const result = await this.db.query('SELECT id, username, display_name, email, password_hash, role, phone, hometown, about_me, profile_image_path, profile_visibility, search_by_email, search_by_phone, search_by_name, profile_updated_at FROM users WHERE username = $1', [body.username.trim().toLowerCase()])
     const user = result.rows[0]
     if (!user || !(await bcrypt.compare(body.password, user.password_hash))) throw new UnauthorizedException('Invalid username or password')
-    const { password_hash: _, ...safeUser } = user
-    return { user: safeUser, token: issueToken(user.id) }
+    return { user: safeProfile(user), token: issueToken(user.id) }
   }
   @UseGuards(AuthGuard)
   @Post('password') async changePassword(@Req() req: AuthRequest, @Body() body: ChangePasswordDto) {
@@ -158,15 +181,57 @@ class AuthController {
     return { ok: true }
   }
   @UseGuards(AuthGuard)
-  @Get('me') async me(@Req() req: AuthRequest) { const userId = req.userId!; const result = await this.db.query('SELECT id, username, display_name, email, role, created_at FROM users WHERE id = $1', [userId]); return result.rows[0] }
+  @Get('me') async me(@Req() req: AuthRequest) { const userId = req.userId!; const result = await this.db.query('SELECT id, username, display_name, email, role, phone, hometown, about_me, profile_image_path, profile_visibility, search_by_email, search_by_phone, search_by_name, profile_updated_at FROM users WHERE id = $1', [userId]); return safeProfile(result.rows[0]) }
+}
+
+@Controller('api/profile')
+class ProfileController {
+  constructor(private readonly db: DbService) {}
+  @UseGuards(AuthGuard)
+  @Get() async current(@Req() req: AuthRequest) {
+    const result = await this.db.query('SELECT id, username, display_name, email, role, phone, hometown, about_me, profile_image_path, profile_visibility, search_by_email, search_by_phone, search_by_name, profile_updated_at FROM users WHERE id = $1', [req.userId!])
+    if (!result.rows[0]) throw new NotFoundException('Profile not found')
+    return safeProfile(result.rows[0])
+  }
+  @UseGuards(AuthGuard)
+  @Patch() async update(@Req() req: AuthRequest, @Body() body: ProfileUpdateDto) {
+    const visibility = body.profileVisibility === 'public' ? 'public' : 'private'
+    const result = await this.db.query(`UPDATE users SET display_name = COALESCE(NULLIF($2, ''), display_name), email = COALESCE(NULLIF($3, ''), email), phone = NULLIF($4, ''), hometown = NULLIF($5, ''), about_me = NULLIF($6, ''), profile_visibility = $7, search_by_email = CASE WHEN $7 = 'public' THEN COALESCE($8, false) ELSE false END, search_by_phone = CASE WHEN $7 = 'public' THEN COALESCE($9, false) ELSE false END, search_by_name = CASE WHEN $7 = 'public' THEN COALESCE($10, false) ELSE false END, profile_updated_at = now() WHERE id = $1 RETURNING id, username, display_name, email, role, phone, hometown, about_me, profile_image_path, profile_visibility, search_by_email, search_by_phone, search_by_name, profile_updated_at`, [req.userId!, body.displayName?.trim(), body.email?.trim().toLowerCase(), body.phone?.trim(), body.hometown?.trim(), body.aboutMe?.trim(), visibility, body.searchByEmail, body.searchByPhone, body.searchByName])
+    if (!result.rows[0]) throw new NotFoundException('Profile not found')
+    return safeProfile(result.rows[0])
+  }
+  @UseGuards(AuthGuard)
+  @UseInterceptors(FileInterceptor('file', { dest: UPLOAD_DIR, limits: { fileSize: PROFILE_IMAGE_MAX_BYTES } }))
+  @Post('avatar') async avatar(@Req() req: AuthRequest, @UploadedFile() file?: UploadedChatFile) {
+    if (!file) throw new BadRequestException('Choose an image to upload')
+    if (!PROFILE_IMAGE_TYPES.has(file.mimetype)) { if (existsSync(file.path)) unlinkSync(file.path); throw new BadRequestException('Profile photos must be JPG, PNG, WEBP, or GIF') }
+    const storedPath = join(UPLOAD_DIR, `profile-${randomUUID()}-${basename(file.originalname).replace(/[^a-z0-9._-]/gi, '_')}`)
+    const { renameSync } = await import('node:fs')
+    renameSync(file.path, storedPath)
+    const result = await this.db.query('UPDATE users SET profile_image_path = $2, profile_updated_at = now() WHERE id = $1 RETURNING id, username, display_name, email, role, phone, hometown, about_me, profile_image_path, profile_visibility, search_by_email, search_by_phone, search_by_name, profile_updated_at', [req.userId!, storedPath])
+    return safeProfile(result.rows[0])
+  }
+  @Get('public/:username') async publicProfile(@Param('username') username: string) {
+    const result = await this.db.query('SELECT id, username, display_name, email, phone, hometown, about_me, profile_image_path, profile_visibility, search_by_email, search_by_phone FROM users WHERE username = $1 AND profile_visibility = \'public\'', [username.trim().toLowerCase()])
+    const profile = result.rows[0]
+    if (!profile) throw new NotFoundException('This profile is private or unavailable')
+    return { id: profile.id, username: profile.username, display_name: profile.display_name, profile_image_url: profileImageUrl(profile.profile_image_path), hometown: profile.hometown || null, about_me: profile.about_me || null, email: profile.search_by_email ? profile.email : null, phone: profile.search_by_phone ? profile.phone : null }
+  }
+  @Get('avatar/:fileName') async avatarFile(@Param('fileName') fileName: string) {
+    const safeName = basename(fileName)
+    const result = await this.db.query('SELECT profile_image_path FROM users WHERE profile_image_path = $1', [join(UPLOAD_DIR, safeName)])
+    const path = result.rows[0]?.profile_image_path
+    if (!path || !existsSync(path)) throw new NotFoundException('Profile image is unavailable')
+    return new StreamableFile(createReadStream(path))
+  }
 }
 
 @Controller('api/contacts')
 @UseGuards(AuthGuard)
 class ContactsController {
   constructor(private readonly db: DbService) {}
-  @Get('search') async search(@Req() req: AuthRequest, @Query('q') q = '') { const result = await this.db.query('SELECT id, username, display_name FROM users WHERE id <> $1 AND (username ILIKE $2 OR display_name ILIKE $2) ORDER BY username LIMIT 20', [req.userId!, `%${q.trim()}%`]); return result.rows }
-  @Get() async list(@Req() req: AuthRequest) { const result = await this.db.query('SELECT u.id, u.username, u.display_name, c.favorite FROM contacts c JOIN users u ON u.id = c.contact_user_id WHERE c.user_id = $1 ORDER BY c.favorite DESC, u.display_name', [req.userId!]); return result.rows }
+  @Get('search') async search(@Req() req: AuthRequest, @Query('q') q = '') { const term = q.trim(); const result = await this.db.query(`SELECT u.id, u.username, u.display_name, u.profile_image_path FROM users u WHERE u.id <> $1 AND u.profile_visibility = 'public' AND (u.username ILIKE $2 OR (u.search_by_name AND u.display_name ILIKE $2) OR (u.search_by_email AND u.email ILIKE $2) OR (u.search_by_phone AND regexp_replace(COALESCE(u.phone, ''), '\\D', '', 'g') <> '' AND regexp_replace(u.phone, '\\D', '', 'g') ILIKE '%' || regexp_replace($3, '\\D', '', 'g') || '%')) ORDER BY u.username LIMIT 20`, [req.userId!, `%${term}%`, term]); return result.rows.map(row => ({ id: row.id, username: row.username, display_name: row.display_name, profile_image_url: profileImageUrl(row.profile_image_path) })) }
+  @Get() async list(@Req() req: AuthRequest) { const result = await this.db.query('SELECT u.id, u.username, u.display_name, u.profile_image_path, c.favorite FROM contacts c JOIN users u ON u.id = c.contact_user_id WHERE c.user_id = $1 ORDER BY c.favorite DESC, u.display_name', [req.userId!]); return result.rows.map(row => ({ id: row.id, username: row.username, display_name: row.display_name, profile_image_url: profileImageUrl(row.profile_image_path), favorite: row.favorite })) }
   @Get('requests') async requests(@Req() req: AuthRequest) { const result = await this.db.query('SELECT r.id, u.username, u.display_name, r.created_at FROM contact_requests r JOIN users u ON u.id = r.from_user_id WHERE r.to_user_id = $1 AND r.status = \'pending\' ORDER BY r.created_at DESC', [req.userId!]); return result.rows }
   @Post('requests') async request(@Req() req: AuthRequest, @Body() body: ContactRequestDto) { const target = await this.db.query('SELECT id FROM users WHERE username = $1', [body.username.trim().toLowerCase()]); if (!target.rows[0] || target.rows[0].id === req.userId) throw new BadRequestException('Contact not found'); const result = await this.db.query('INSERT INTO contact_requests (from_user_id, to_user_id) VALUES ($1, $2) ON CONFLICT (from_user_id, to_user_id) DO UPDATE SET status = \'pending\' RETURNING id, status, created_at', [req.userId!, target.rows[0].id]); return result.rows[0] }
   @Post('requests/:id/accept') async accept(@Req() req: AuthRequest, @Param('id') id: string) { const request = await this.db.query('UPDATE contact_requests SET status = \'accepted\' WHERE id = $1 AND to_user_id = $2 AND status = \'pending\' RETURNING from_user_id, to_user_id', [id, req.userId!]); if (!request.rows[0]) throw new BadRequestException('Request is unavailable'); const { from_user_id: from, to_user_id: to } = request.rows[0]; await this.db.query('INSERT INTO contacts (user_id, contact_user_id) VALUES ($1, $2), ($2, $1) ON CONFLICT DO NOTHING', [from, to]); return { ok: true } }
@@ -393,7 +458,7 @@ class AdminController {
   }
 }
 
-@Module({ controllers: [HealthController, AuthController, ContactsController, CallsController, ConversationsController, NotificationsController, AdminController], providers: [DbService, PresenceService, PushService, AuthGuard, AdminGuard, RealtimeGateway] })
+@Module({ controllers: [HealthController, AuthController, ProfileController, ContactsController, CallsController, ConversationsController, NotificationsController, AdminController], providers: [DbService, PresenceService, PushService, AuthGuard, AdminGuard, RealtimeGateway] })
 class AppModule {}
 
 async function bootstrap() { const app = await NestFactory.create(AppModule); app.enableCors({ origin: true, credentials: true }); app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true })); await app.listen(Number(process.env.PORT || 3000), '0.0.0.0') }

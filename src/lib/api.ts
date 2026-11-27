@@ -1,5 +1,6 @@
-export type User = { id: string; username: string; display_name: string; email: string; role: 'user' | 'admin' }
-export type Contact = { id: string; username: string; display_name: string; favorite?: boolean }
+export type ProfileVisibility = 'private' | 'public'
+export type User = { id: string; username: string; display_name: string; email: string; role: 'user' | 'admin'; phone?: string | null; hometown?: string | null; about_me?: string | null; profile_image_url?: string | null; profile_visibility?: ProfileVisibility; search_by_email?: boolean; search_by_phone?: boolean; search_by_name?: boolean; profile_updated_at?: string | null }
+export type Contact = { id: string; username: string; display_name: string; favorite?: boolean; profile_image_url?: string | null }
 export type ApiAttachment = { url: string; name: string; mime: string; size: number }
 export type ApiMessage = { id: string; body: string; created_at: string; sender_id: string; username: string; display_name: string; read?: boolean; attachment?: ApiAttachment | null }
 export type ApiConversation = { id: string; created_at: string; participant: Contact; last_message: ApiMessage | null; unread_count: number }

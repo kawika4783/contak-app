@@ -7,6 +7,15 @@ CREATE TABLE IF NOT EXISTS users (
   email varchar(255) NOT NULL UNIQUE,
   password_hash text NOT NULL,
   role varchar(16) NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  phone varchar(32),
+  hometown varchar(120),
+  about_me varchar(1000),
+  profile_image_path text,
+  profile_visibility varchar(8) NOT NULL DEFAULT 'private' CHECK (profile_visibility IN ('private', 'public')),
+  search_by_email boolean NOT NULL DEFAULT false,
+  search_by_phone boolean NOT NULL DEFAULT false,
+  search_by_name boolean NOT NULL DEFAULT false,
+  profile_updated_at timestamptz NOT NULL DEFAULT now(),
   suspended_until timestamptz,
   suspension_reason varchar(255),
   created_at timestamptz NOT NULL DEFAULT now()
@@ -14,6 +23,15 @@ CREATE TABLE IF NOT EXISTS users (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS role varchar(16) NOT NULL DEFAULT 'user';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_until timestamptz;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS suspension_reason varchar(255);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone varchar(32);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS hometown varchar(120);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS about_me varchar(1000);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_image_path text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_visibility varchar(8) NOT NULL DEFAULT 'private';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS search_by_email boolean NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS search_by_phone boolean NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS search_by_name boolean NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_updated_at timestamptz NOT NULL DEFAULT now();
 CREATE INDEX IF NOT EXISTS users_role_idx ON users (role);
 CREATE INDEX IF NOT EXISTS users_suspended_until_idx ON users (suspended_until);
 
