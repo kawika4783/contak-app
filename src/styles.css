@@ -180,6 +180,13 @@
 .message-search button { display: grid; place-items: center; padding: 4px; color: #8792b0; background: transparent; }
 .search-empty { display: grid; justify-items: center; gap: 9px; margin: 65px auto; color: #8995b5; font-size: 11px; }
 .composer-shell { position: relative; }
+.upload-progress { display: grid; gap: 7px; margin: 0 0 8px; padding: 9px 11px; border: 1px solid rgba(139,92,246,.34); border-radius: 11px; color: #cbd3ed; background: rgba(31,36,69,.76); }
+.upload-progress-copy { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; font-size: 10px; }
+.upload-progress-copy span { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-progress-copy svg { flex: 0 0 auto; color: #b39bff; }
+.upload-progress-copy strong { flex: 0 0 auto; color: #e9e4ff; font-size: 10px; }
+.upload-progress-track { height: 4px; overflow: hidden; border-radius: 999px; background: rgba(151,164,228,.18); }
+.upload-progress-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #38bdf8, #9d69ff); box-shadow: 0 0 10px rgba(157,105,255,.65); transition: width .16s ease; }
 .composer-popovers { position: absolute; z-index: 11; bottom: calc(100% + 9px); left: 0; }
 .attachment-menu, .emoji-menu { padding: 8px; border: 1px solid rgba(166,145,255,.34); border-radius: 14px; background: rgba(19,23,48,.98); box-shadow: 0 18px 45px rgba(0,0,0,.42); backdrop-filter: blur(18px); }
 .attachment-menu { display: grid; grid-template-columns: repeat(2, minmax(98px, 1fr)); gap: 5px; width: 238px; }
