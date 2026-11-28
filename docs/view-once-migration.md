@@ -1,6 +1,6 @@
 # View Once migration and rollback
 
-The API applies `apps/api/schema.sql` idempotently on startup. The Phase 3 statements add `contacts.favorite_order`, `contacts.nickname`, presence preferences, `schema_migrations`, `ephemeral_media`, and the singleton `admin_ephemeral_settings` row. They do not reset, truncate, or recreate existing production tables.
+The API applies `apps/api/schema.sql` idempotently on startup. The Phase 3 statements add `contacts.favorite_order`, `contacts.nickname`, presence preferences, private owner-side `contact_groups` / `contact_group_members`, `schema_migrations`, `ephemeral_media`, and the singleton `admin_ephemeral_settings` row. They do not reset, truncate, or recreate existing production tables. Groups organize existing contacts only; they do not change the existing one-to-one conversation model.
 
 ## Production backup before deploy
 

@@ -33,7 +33,7 @@ The static frontend is served by Nginx with SPA fallback and `/healthz`. The API
 
 ## Architecture notes
 
-The current application includes the existing authenticated messaging and calling flows plus the Phase 3 contact redesign, presence preferences, persistent favorites, and backend-enforced View Once photo messaging. View Once migration and rollback details are in `docs/view-once-migration.md`; security limitations are in `docs/view-once-security.md`.
+The current application includes the existing authenticated messaging and calling flows plus the Phase 3 contact redesign, compact mobile navigation, persistent favorites with reordering, private contact groups, presence preferences, and backend-enforced View Once photo messaging. View Once migration and rollback details are in `docs/view-once-migration.md`; security limitations are in `docs/view-once-security.md`.
 
 Recommended next services:
 

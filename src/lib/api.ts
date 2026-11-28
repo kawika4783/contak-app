@@ -2,6 +2,7 @@ export type ProfileVisibility = 'private' | 'public'
 export type User = { id: string; username: string; display_name: string; email: string; role: 'user' | 'admin'; phone?: string | null; hometown?: string | null; about_me?: string | null; profile_image_url?: string | null; profile_visibility?: ProfileVisibility; search_by_email?: boolean; search_by_phone?: boolean; search_by_name?: boolean; profile_updated_at?: string | null }
 export type PresenceStatus = 'online' | 'offline' | 'away' | 'busy' | 'dnd' | 'invisible'
 export type Contact = { id: string; username: string; display_name: string; nickname?: string | null; favorite?: boolean; favorite_order?: number; presence?: PresenceStatus; profile_image_url?: string | null }
+export type ContactGroup = { id: string; name: string; created_at: string; member_count: number }
 export type ApiAttachment = { url?: string | null; name: string; mime: string; size: number; ephemeral?: { state: 'pending' | 'unopened' | 'viewing' | 'opened' | 'expired' | 'revoked' | 'deleted'; durationSeconds: number } }
 export type ApiMessage = { id: string; conversation_id: string; body: string; created_at: string; sender_id: string; username: string; display_name: string; read?: boolean; attachment?: ApiAttachment | null }
 export type ApiConversation = { id: string; created_at: string; participant: Contact; last_message: ApiMessage | null; unread_count: number }

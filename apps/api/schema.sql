@@ -64,6 +64,24 @@ ALTER TABLE contacts ADD COLUMN IF NOT EXISTS favorite_order integer NOT NULL DE
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS nickname varchar(80);
 CREATE INDEX IF NOT EXISTS contacts_favorites_idx ON contacts (user_id, favorite, favorite_order, created_at);
 
+-- Isolated contact organization. Groups intentionally do not alter the existing
+-- one-to-one conversation model; they are private owner-side collections.
+CREATE TABLE IF NOT EXISTS contact_groups (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name varchar(80) NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (owner_user_id, name)
+);
+CREATE TABLE IF NOT EXISTS contact_group_members (
+  group_id uuid NOT NULL REFERENCES contact_groups(id) ON DELETE CASCADE,
+  contact_user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (group_id, contact_user_id)
+);
+CREATE INDEX IF NOT EXISTS contact_groups_owner_idx ON contact_groups (owner_user_id, created_at);
+CREATE INDEX IF NOT EXISTS contact_group_members_contact_idx ON contact_group_members (contact_user_id, group_id);
+
 CREATE TABLE IF NOT EXISTS conversations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   kind varchar(20) NOT NULL DEFAULT 'one_to_one' CHECK (kind = 'one_to_one'),
