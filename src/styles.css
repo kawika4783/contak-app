@@ -141,7 +141,6 @@
 .contacts-grid-card .contact-copy span { display: none; }
 .contacts-grid-card .contact-actions { display: flex; align-items: center; justify-content: center; width: 100%; gap: 6px; }
 .contacts-grid-card .contact-open, .contacts-grid-card .contact-call { display: inline-flex; flex: 0 0 36px; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border-radius: 10px; }
-.contacts-grid-card .contact-star { width: 36px; height: 36px; }
 .contacts-grid-card .contact-open-label, .contacts-grid-card .contact-add { display: none; }
 .group-create-form { display: flex; gap: 8px; max-width: 430px; margin-bottom: 14px; }
 .group-create-form input { min-width: 0; flex: 1; height: 36px; padding: 0 11px; border: 1px solid rgba(151,164,228,.2); border-radius: 9px; color: #eef1ff; background: rgba(13,18,39,.7); outline: 0; font-size: 11px; }
