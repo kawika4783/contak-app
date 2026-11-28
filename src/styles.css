@@ -152,6 +152,8 @@
 .group-row > div { display: grid; gap: 2px; }
 .group-row strong { color: #eef1ff; font-size: 11px; }
 .group-row small { color: var(--muted); font-size: 10px; }
+.group-row select { min-width: 120px; margin-left: auto; padding: 6px 7px; border: 1px solid rgba(151,164,228,.2); border-radius: 8px; color: #cbd4ee; background: #171b38; font-size: 10px; }
+.group-add-button { width: 30px; height: 30px; }
 .group-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; color: #bba8ff; background: rgba(139,92,246,.16); }
 .group-empty { margin: 22px 0 8px; }
 
