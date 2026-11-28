@@ -17,6 +17,9 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return
 
   const requestUrl = new URL(event.request.url)
+  // API responses, especially authenticated media and View Once sessions,
+  // must never enter the app-shell cache.
+  if (requestUrl.pathname.startsWith('/api/')) return
   const isNavigation = event.request.mode === 'navigate' || requestUrl.pathname === '/' || requestUrl.pathname === '/index.html'
 
   if (isNavigation) {

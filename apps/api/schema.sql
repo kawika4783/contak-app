@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS users (
   search_by_email boolean NOT NULL DEFAULT false,
   search_by_phone boolean NOT NULL DEFAULT false,
   search_by_name boolean NOT NULL DEFAULT false,
+  presence_status varchar(16) NOT NULL DEFAULT 'online',
+  presence_visibility varchar(16) NOT NULL DEFAULT 'contacts',
   profile_updated_at timestamptz NOT NULL DEFAULT now(),
   suspended_until timestamptz,
   suspension_reason varchar(255),
@@ -32,6 +34,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS search_by_email boolean NOT NULL DEFA
 ALTER TABLE users ADD COLUMN IF NOT EXISTS search_by_phone boolean NOT NULL DEFAULT false;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS search_by_name boolean NOT NULL DEFAULT false;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_updated_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE users ADD COLUMN IF NOT EXISTS presence_status varchar(16) NOT NULL DEFAULT 'online';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS presence_visibility varchar(16) NOT NULL DEFAULT 'contacts';
 CREATE INDEX IF NOT EXISTS users_role_idx ON users (role);
 CREATE INDEX IF NOT EXISTS users_suspended_until_idx ON users (suspended_until);
 
@@ -49,11 +53,16 @@ CREATE TABLE IF NOT EXISTS contacts (
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   contact_user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   favorite boolean NOT NULL DEFAULT false,
+  favorite_order integer NOT NULL DEFAULT 0,
+  nickname varchar(80),
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, contact_user_id),
   CHECK (user_id <> contact_user_id)
 );
 CREATE INDEX IF NOT EXISTS contacts_contact_user_idx ON contacts (contact_user_id, user_id);
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS favorite_order integer NOT NULL DEFAULT 0;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS nickname varchar(80);
+CREATE INDEX IF NOT EXISTS contacts_favorites_idx ON contacts (user_id, favorite, favorite_order, created_at);
 
 CREATE TABLE IF NOT EXISTS conversations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -138,3 +147,50 @@ CREATE TABLE IF NOT EXISTS reports (
   CHECK (reporter_id <> reported_user_id)
 );
 CREATE INDEX IF NOT EXISTS reports_status_created_idx ON reports (status, created_at DESC);
+
+-- Idempotent Phase 3 migrations. These statements only add nullable/defaulted
+-- fields and new tables; they never rewrite or remove existing messages.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version varchar(80) PRIMARY KEY,
+  applied_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS ephemeral_media (
+  message_id uuid PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+  sender_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recipient_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  media_path text,
+  original_name varchar(255) NOT NULL,
+  media_mime varchar(120) NOT NULL,
+  media_size integer NOT NULL,
+  state varchar(16) NOT NULL DEFAULT 'unopened' CHECK (state IN ('pending', 'unopened', 'viewing', 'opened', 'expired', 'revoked', 'deleted')),
+  view_duration_seconds integer NOT NULL DEFAULT 0 CHECK (view_duration_seconds IN (0, 5, 10, 30)),
+  unopened_expires_at timestamptz NOT NULL,
+  viewing_session_hash text,
+  session_started_at timestamptz,
+  session_expires_at timestamptz,
+  viewed_at timestamptz,
+  cleanup_attempts integer NOT NULL DEFAULT 0,
+  last_cleanup_error text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (sender_id <> recipient_id)
+);
+CREATE INDEX IF NOT EXISTS ephemeral_media_cleanup_idx ON ephemeral_media (state, unopened_expires_at, session_expires_at);
+CREATE INDEX IF NOT EXISTS ephemeral_media_recipient_idx ON ephemeral_media (recipient_id, state);
+
+CREATE TABLE IF NOT EXISTS admin_ephemeral_settings (
+  id boolean PRIMARY KEY DEFAULT true CHECK (id),
+  enabled boolean NOT NULL DEFAULT true,
+  timed_viewing_enabled boolean NOT NULL DEFAULT true,
+  allowed_durations integer[] NOT NULL DEFAULT ARRAY[0, 5, 10, 30],
+  max_image_bytes integer NOT NULL DEFAULT 20971520,
+  allowed_image_formats text[] NOT NULL DEFAULT ARRAY['image/jpeg', 'image/png', 'image/webp'],
+  unopened_expiry_hours integer NOT NULL DEFAULT 168,
+  max_session_seconds integer NOT NULL DEFAULT 300,
+  cleanup_interval_seconds integer NOT NULL DEFAULT 300,
+  storage_limit_bytes bigint NOT NULL DEFAULT 10737418240,
+  claim_rate_limit integer NOT NULL DEFAULT 10,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO admin_ephemeral_settings (id) VALUES (true) ON CONFLICT (id) DO NOTHING;
+INSERT INTO schema_migrations (version) VALUES ('001_ephemeral_media_and_contact_preferences') ON CONFLICT (version) DO NOTHING;

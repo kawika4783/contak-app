@@ -1,8 +1,9 @@
 export type ProfileVisibility = 'private' | 'public'
 export type User = { id: string; username: string; display_name: string; email: string; role: 'user' | 'admin'; phone?: string | null; hometown?: string | null; about_me?: string | null; profile_image_url?: string | null; profile_visibility?: ProfileVisibility; search_by_email?: boolean; search_by_phone?: boolean; search_by_name?: boolean; profile_updated_at?: string | null }
-export type Contact = { id: string; username: string; display_name: string; favorite?: boolean; profile_image_url?: string | null }
-export type ApiAttachment = { url: string; name: string; mime: string; size: number }
-export type ApiMessage = { id: string; body: string; created_at: string; sender_id: string; username: string; display_name: string; read?: boolean; attachment?: ApiAttachment | null }
+export type PresenceStatus = 'online' | 'offline' | 'away' | 'busy' | 'dnd' | 'invisible'
+export type Contact = { id: string; username: string; display_name: string; nickname?: string | null; favorite?: boolean; favorite_order?: number; presence?: PresenceStatus; profile_image_url?: string | null }
+export type ApiAttachment = { url?: string | null; name: string; mime: string; size: number; ephemeral?: { state: 'pending' | 'unopened' | 'viewing' | 'opened' | 'expired' | 'revoked' | 'deleted'; durationSeconds: number } }
+export type ApiMessage = { id: string; conversation_id: string; body: string; created_at: string; sender_id: string; username: string; display_name: string; read?: boolean; attachment?: ApiAttachment | null }
 export type ApiConversation = { id: string; created_at: string; participant: Contact; last_message: ApiMessage | null; unread_count: number }
 export type NotificationMode = 'on' | 'silent' | 'off'
 
@@ -54,10 +55,11 @@ export async function syncPushSubscription(token: string, mode: NotificationMode
   return { permission }
 }
 
-export function uploadFile<T>(path: string, file: File, token: string, onProgress: (percent: number) => void): Promise<T> {
+export function uploadFile<T>(path: string, file: File, token: string, onProgress: (percent: number) => void, fields: Record<string, string> = {}): Promise<T> {
   return new Promise((resolve, reject) => {
     const form = new FormData()
     form.append('file', file)
+    Object.entries(fields).forEach(([key, value]) => form.append(key, value))
     const request = new XMLHttpRequest()
     request.open('POST', `/api${path}`)
     request.setRequestHeader('Authorization', `Bearer ${token}`)

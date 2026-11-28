@@ -29,11 +29,11 @@ The repository includes a production `Dockerfile`, `nginx.conf`, and `compose.ya
 
 Before running Compose, create a local `.env` from `.env.example` with unique secrets. Never commit `.env`.
 
-The static frontend is served by Nginx with SPA fallback and `/healthz`. The container does not claim the backend features described below; it is the safe Phase 1 web deployment.
+The static frontend is served by Nginx with SPA fallback and `/healthz`. The API is self-hosted in the same Compose stack with PostgreSQL, Redis, Socket.IO signaling, private uploads, Web Push, profile privacy, and the administration panel.
 
 ## Architecture notes
 
-The supplied master prompt describes a full monorepo with NestJS, PostgreSQL, Redis, Socket.IO, LiveKit, Coturn, WebRTC, Web Push, authentication, media uploads, and administration. This delivery is the frontend foundation and interaction prototype for that architecture. The current local app intentionally does not claim to provide secure multi-user persistence, authenticated APIs, or real media calls yet.
+The current application includes the existing authenticated messaging and calling flows plus the Phase 3 contact redesign, presence preferences, persistent favorites, and backend-enforced View Once photo messaging. View Once migration and rollback details are in `docs/view-once-migration.md`; security limitations are in `docs/view-once-security.md`.
 
 Recommended next services:
 
